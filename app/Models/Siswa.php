@@ -8,25 +8,30 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Tymon\JWTAuth\Contracts\JWTSubject;
 use Illuminate\Support\Facades\Hash;
 
-class User extends Authenticatable implements JWTSubject
+class Siswa extends Authenticatable implements JWTSubject
 {
     use HasFactory, Notifiable;
 
-    protected $table = 'users';
+    protected $table = 'siswa';
 
     protected $fillable = [
-        'name',
-        'email',
+        'nama',
+        'tahun_lahir',
         'password',
-        'role', // admin | guru
+        'kelas_id',
+        'is_alumni',
     ];
 
     protected $hidden = [
         'password',
-        'remember_token',
     ];
 
-    // Hash password automatically
+    protected $casts = [
+        'is_alumni' => 'boolean',
+        'tahun_lahir' => 'integer',
+    ];
+
+    // auto-hash student password (default is tahun_lahir)
     public function setPasswordAttribute($value)
     {
         if ($value === null) return;
@@ -38,26 +43,24 @@ class User extends Authenticatable implements JWTSubject
     {
         return $this->getKey();
     }
-
     public function getJWTCustomClaims()
     {
         return [];
     }
 
-    // helpers
-    public function isAdmin(): bool
-    {
-        return $this->role === 'admin';
-    }
-
-    public function isGuru(): bool
-    {
-        return $this->role === 'guru';
-    }
-
     // relations
-    public function guru()
+    public function kelas()
     {
-        return $this->hasOne(Guru::class, 'user_id');
+        return $this->belongsTo(Kelas::class, 'kelas_id');
+    }
+
+    public function riwayatKelas()
+    {
+        return $this->hasMany(RiwayatKelas::class, 'siswa_id');
+    }
+
+    public function nilai()
+    {
+        return $this->hasMany(Nilai::class, 'siswa_id');
     }
 }
