@@ -7,23 +7,62 @@ use App\Models\Jadwal;
 use App\Models\Kelas;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Auth;
 
 class JadwalController extends Controller
 {
     // list jadwal for a kelas (public)
-    public function index($kelas_id)
-    {
-        $kelas = Kelas::findOrFail($kelas_id);
-        $jadwals = Jadwal::where('kelas_id', $kelas_id)->orderByDesc('created_at')->get();
-        return response()->json(['kelas' => $kelas->nama, 'data' => $jadwals]);
+public function index($kelas_id)
+{
+    // if API user (guru/admin) allow
+    if (Auth::guard('api')->check()) {
+        $user = Auth::guard('api')->user();
+        if ($user && in_array($user->role, ['admin','guru'])) {
+            $jadwals = Jadwal::where('kelas_id', $kelas_id)->orderByDesc('created_at')->get();
+            return response()->json($jadwals);
+        }
     }
 
+    // if siswa guard
+    if (Auth::guard('siswa')->check()) {
+        $siswa = Auth::guard('siswa')->user();
+        if ((int)$siswa->kelas_id !== (int)$kelas_id) {
+            return response()->json(['message' => 'Forbidden: not your class'], 403);
+        }
+        $jadwals = Jadwal::where('kelas_id', $kelas_id)->orderByDesc('created_at')->get();
+        return response()->json($jadwals);
+    }
+
+    return response()->json(['message' => 'Unauthorized: please login'], 401);
+}
+
+
+
     // show single jadwal
-    public function show($kelas_id, $id)
-    {
+    // show
+public function show($kelas_id, $id)
+{
+    // same checks as above
+    if (Auth::guard('api')->check()) {
+        $user = Auth::guard('api')->user();
+        if ($user && in_array($user->role, ['admin','guru'])) {
+            $jadwal = Jadwal::where('kelas_id', $kelas_id)->findOrFail($id);
+            return response()->json($jadwal);
+        }
+    }
+
+    if (Auth::guard('siswa')->check()) {
+        $siswa = Auth::guard('siswa')->user();
+        if ((int)$siswa->kelas_id !== (int)$kelas_id) {
+            return response()->json(['message' => 'Forbidden: not your class'], 403);
+        }
         $jadwal = Jadwal::where('kelas_id', $kelas_id)->findOrFail($id);
         return response()->json($jadwal);
     }
+
+    return response()->json(['message' => 'Unauthorized: please login'], 401);
+}
+
 
     // create jadwal (ONLY wali.kelas middleware should allow)
     public function store(Request $request, $kelas_id)

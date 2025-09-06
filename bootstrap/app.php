@@ -19,6 +19,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'wali.kelas' => \App\Http\Middleware\WaliKelasMiddleware::class,
             'is_admin'   => \App\Http\Middleware\AdminMiddleware::class,
              'role'       => \App\Http\Middleware\RoleMiddleware::class,
+             'can.view.jadwal' => \App\Http\Middleware\CanViewJadwal::class,
         ]);
 
         // Jika perlu, tambahkan middleware global atau group di sini, contoh:
