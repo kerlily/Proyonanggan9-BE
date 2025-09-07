@@ -13,6 +13,8 @@ use App\Http\Controllers\AdminAcademicYearController;
 use App\Http\Controllers\AdminUserController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\AdminResetPasswordController;
+use App\Http\Controllers\TemplateController;
+use App\Http\Controllers\ImportNilaiController;
 
 
 /*
@@ -60,7 +62,6 @@ Route::middleware(['auth:siswa'])->group(function () {
     Route::post('/siswa/me/password', [ProfileController::class, 'changeSiswaPassword']); // ganti password
 });
 
-
 /**
  * Nilai (hanya wali kelas via middleware wali.kelas boleh menyimpan / update nilai untuk kelasnya)
  */
@@ -80,7 +81,6 @@ Route::middleware(['auth:api','is_admin'])->prefix('admin')->group(function () {
     Route::post('wali-kelas/unassign/{id}', [WaliKelasController::class, 'unassign']); // or DELETE
     Route::post('tahun-ajaran/change', [AdminAcademicYearController::class, 'changeYear']); // promote year
 
-
 Route::post('/guru/{id}/reset-password', [AdminResetPasswordController::class, 'resetUserPassword']);
 Route::post('/siswa/{id}/reset-password', [AdminResetPasswordController::class, 'resetSiswaPassword']);
 });
@@ -96,10 +96,14 @@ Route::middleware(['can.view.jadwal'])->group(function () {
 });
 
 Route::middleware(['auth:api', 'wali.kelas'])->group(function () {
-    // untuk upload gambar gunakan multipart/form-data
-    Route::post('/kelas/{kelas_id}/jadwals', [JadwalController::class, 'store']);            // create (file upload)
-    Route::post('/kelas/{kelas_id}/jadwals/{id}', [JadwalController::class, 'update']);      // update (file upload supported)
-    Route::delete('/kelas/{kelas_id}/jadwals/{id}', [JadwalController::class, 'destroy']);   // delete
+    // Rute untuk CRUD jadwal (dengan file upload untuk store dan update)
+    Route::post('/kelas/{kelas_id}/jadwals', [JadwalController::class, 'store']);            // Create (file upload)
+    Route::post('/kelas/{kelas_id}/jadwals/{id}', [JadwalController::class, 'update']);      // Update (file upload supported)
+    Route::delete('/kelas/{kelas_id}/jadwals/{id}', [JadwalController::class, 'destroy']);   // Delete
+    // Rute untuk download template nilai Excel
+    Route::get('/kelas/{kelas_id}/semester/{semester_id}/download-template', [TemplateController::class, 'downloadTemplate']); // Download Excel
+    // Rute untuk import nilai dari Excel
+    Route::post('/kelas/{kelas_id}/semester/{semester_id}/import-nilai', [ImportNilaiController::class, 'import']); // Import Excel
 });
 
 /**
