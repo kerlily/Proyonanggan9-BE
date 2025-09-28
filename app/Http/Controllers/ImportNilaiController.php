@@ -5,6 +5,8 @@ use Illuminate\Http\Request;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 use Illuminate\Support\Facades\DB;
 use Exception;
+use App\Models\Guru;
+use App\Models\TahunAjaran;
 
 class ImportNilaiController extends Controller
 {
@@ -25,8 +27,40 @@ class ImportNilaiController extends Controller
 
         $dryRun = (bool)$request->input('dry_run', false);
 
-        // determine uploader id from auth (ensure route uses auth middleware)
-        $uploaderId = auth()->guard('api')->id() ?? auth()->id() ?? null;
+        // --- GET ACTIVE TAHUN AJARAN ---
+        $activeTahunAjaran = TahunAjaran::where('is_active', true)->first();
+        if (!$activeTahunAjaran) {
+            return response()->json(['message' => 'Tidak ada tahun ajaran aktif'], 400);
+        }
+
+        // --- Verify semester belongs to active tahun ajaran ---
+        $semester = DB::table('semester')
+            ->where('id', $semester_id)
+            ->where('tahun_ajaran_id', $activeTahunAjaran->is_active)
+            ->first();
+
+        if (!$semester) {
+            return response()->json(['message' => 'Semester tidak ditemukan atau tidak sesuai dengan tahun ajaran aktif'], 400);
+        }
+
+        // --- DETERMINE uploaderGuruId (map user -> guru.id) ---
+        $user = auth()->guard('api')->user() ?? auth()->user();
+        $uploaderGuruId = null;
+        if ($user) {
+            // 1) try find guru by user_id column
+            $guru = Guru::where('user_id', $user->id)->first();
+            if ($guru) {
+                $uploaderGuruId = $guru->id;
+            } else {
+                // 2) maybe auth directly returns guru id (rare) => check guru.id == user.id
+                if (Guru::where('id', $user->id)->exists()) {
+                    $uploaderGuruId = $user->id;
+                } else {
+                    // fallback: leave null (safer than inserting invalid FK)
+                    $uploaderGuruId = null;
+                }
+            }
+        }
 
         $file = $request->file('file');
         try {
@@ -92,6 +126,7 @@ class ImportNilaiController extends Controller
         $maxRow = max(array_keys($rows));
         $success = []; $failed = [];
 
+        // process rows
         for ($r = 2; $r <= $maxRow; $r++) {
             if (!isset($rows[$r])) continue;
             $row = $rows[$r];
@@ -123,29 +158,59 @@ class ImportNilaiController extends Controller
                 }
                 $mapel_id = $mapelColToId[$col];
 
-                if (!is_numeric($val) && !is_float($val + 0)) {
+                if (!is_numeric($val)) {
                     $failed[] = ['row'=>$r,'nama'=>$rawNama,'mapel'=>$mapelHeader,'reason'=>'Nilai bukan angka: '.(string)$val];
                     continue;
                 }
 
+                // cast nilai ke integer (sesuaikan jika butuh decimal)
+                $nilaiNumeric = (int) round((float) $val);
+
+                // FIXED: Include tahun_ajaran_id in unique constraint
                 $entry = [
                     'siswa_id' => $siswa['id'],
                     'mapel_id' => $mapel_id,
                     'semester_id' => $semester_id,
+                    'tahun_ajaran_id' => $activeTahunAjaran->id, // ADD THIS
                 ];
                 $data = [
-                    'nilai' => $val,
+                    'nilai' => $nilaiNumeric,
                     'catatan' => $catatan,
-                    'input_by_guru_id' => $uploaderId,
+                    // use mapped guru id (may be null) to avoid FK error
+                    'input_by_guru_id' => $uploaderGuruId,
                     'updated_at' => now(),
                     'created_at' => now(),
                 ];
 
                 if ($dryRun) {
-                    $success[] = ['row'=>$r,'nama'=>$rawNama,'mapel'=>$mapelHeader,'nilai'=>$val,'siswa_id'=>$siswa['id']];
+                    $success[] = [
+                        'row'=>$r,
+                        'nama'=>$rawNama,
+                        'mapel'=>$mapelHeader,
+                        'nilai'=>$nilaiNumeric,
+                        'siswa_id'=>$siswa['id'],
+                        'tahun_ajaran_id'=>$activeTahunAjaran->id
+                    ];
                 } else {
-                    DB::table('nilai')->updateOrInsert($entry, $data);
-                    $success[] = ['row'=>$r,'nama'=>$rawNama,'mapel'=>$mapelHeader,'nilai'=>$val,'siswa_id'=>$siswa['id']];
+                    // wrap each operation to catch DB exceptions per entry
+                    try {
+                        DB::table('nilai')->updateOrInsert($entry, $data);
+                        $success[] = [
+                            'row'=>$r,
+                            'nama'=>$rawNama,
+                            'mapel'=>$mapelHeader,
+                            'nilai'=>$nilaiNumeric,
+                            'siswa_id'=>$siswa['id'],
+                            'tahun_ajaran_id'=>$activeTahunAjaran->id
+                        ];
+                    } catch (Exception $e) {
+                        $failed[] = [
+                            'row'=>$r,
+                            'nama'=>$rawNama,
+                            'mapel'=>$mapelHeader,
+                            'reason' => 'DB error: '.$e->getMessage()
+                        ];
+                    }
                 }
             }
         }
@@ -154,6 +219,11 @@ class ImportNilaiController extends Controller
             'success_count' => count($success),
             'failed_count' => count($failed),
             'unmatched_mapel_headers' => array_values($mapelNotFound),
+            'uploader_guru_id' => $uploaderGuruId,
+            'tahun_ajaran' => [
+                'id' => $activeTahunAjaran->id,
+                'nama' => $activeTahunAjaran->nama
+            ]
         ];
 
         return response()->json([

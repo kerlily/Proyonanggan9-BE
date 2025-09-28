@@ -15,6 +15,7 @@ class Nilai extends Model
         'siswa_id',
         'mapel_id',
         'semester_id',
+        'tahun_ajaran_id',
         'nilai',
         'catatan',
         'input_by_guru_id',
@@ -35,8 +36,17 @@ class Nilai extends Model
         return $this->belongsTo(Semester::class, 'semester_id');
     }
 
+        public function tahunAjaran()
+    {
+        return $this->belongsTo(TahunAjaran::class, 'tahun_ajaran_id');
+    }
     public function inputByGuru()
     {
         return $this->belongsTo(Guru::class, 'input_by_guru_id');
+    }
+
+    public function kelas()
+    {
+        return $this->belongsTo(Kelas::class, 'kelas_id');
     }
 }

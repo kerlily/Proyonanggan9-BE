@@ -30,8 +30,7 @@ class CreateGuruRequest extends FormRequest
         return [
             'name'    => ['required','string','max:255'],
             'email'   => ['required','email','max:255', Rule::unique('users','email')],
-            // password optional; if provided, enforce strong password using Password rule
-            'password'=> ['nullable', Password::min(8)->mixedCase()->numbers()->symbols()],
+            'password'=> ['nullable', Password::min(8)],
             'nip'     => ['nullable','string','max:50', Rule::unique('guru','nip')],
             'no_hp'   => ['nullable','string','max:30'],
             'photo'   => ['nullable','image','mimes:jpg,jpeg,png,webp','max:5120'],

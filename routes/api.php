@@ -15,6 +15,10 @@ use App\Http\Controllers\SiswaAuthController;
 use App\Http\Controllers\SiswaNilaiController;
 use App\Http\Controllers\TemplateController;
 use App\Http\Controllers\WaliKelasController;
+use App\Http\Controllers\PublicGuruController;
+use App\Http\Controllers\GalleryController;
+use App\Http\Controllers\PublicKelasController;
+
 
 /*
 |--------------------------------------------------------------------------
@@ -94,6 +98,14 @@ Route::prefix('admin')->middleware(['auth:api', 'is_admin'])->group(function () 
     // Create user endpoints
     Route::post('/guru', [AdminUserController::class, 'createGuru']); // multipart/form-data
     Route::post('/siswa', [AdminUserController::class, 'createSiswa']); // json
+    Route::post('/siswa/{id}', [AdminUserController::class, 'updateSiswa']);
+    Route::delete('/siswa/{id}', [AdminUserController::class, 'deleteSiswa']);
+
+// Daftar siswa untuk admin (pagination, search by nama/nis, filter kelas, sort)
+Route::get('/siswa', [AdminUserController::class, 'indexSiswa']);
+
+// Detail siswa
+Route::get('/siswa/{id}', [AdminUserController::class, 'showSiswa']);
 
     // Wali Kelas management
     Route::get('wali-kelas', [WaliKelasController::class, 'index']); // optional ?tahun_ajaran_id=#
@@ -142,11 +154,23 @@ Route::middleware(['auth:api', 'wali.kelas'])->group(function () {
  */
 Route::get('/beritas', [BeritaController::class, 'index']);
 Route::get('/beritas/{id}', [BeritaController::class, 'show']);
+Route::get('/public/guru', [PublicGuruController::class, 'index']);
+Route::get('/public/guru/{id}', [PublicGuruController::class, 'show']);
+Route::get('/galleries', [GalleryController::class, 'index']);
+Route::get('/galleries/{id}', [GalleryController::class, 'show']);
+
+// Public endpoints untuk frontend (dropdown kelas & daftar siswa per kelas)
+Route::get('/kelas', [PublicKelasController::class, 'index']);
+Route::get('/kelas/{kelas_id}/siswa', [PublicKelasController::class, 'siswaByKelas']);
+
 
 Route::middleware(['auth:api', 'role:admin,guru'])->group(function () {
     Route::post('/beritas', [BeritaController::class, 'store']);
     Route::post('/beritas/{id}', [BeritaController::class, 'update']);
     Route::delete('/beritas/{id}', [BeritaController::class, 'destroy']);
+    Route::post('/galleries', [GalleryController::class, 'store']);
+    Route::post('/galleries/{id}', [GalleryController::class, 'update']); // or use PUT/PATCH
+    Route::delete('/galleries/{id}', [GalleryController::class, 'destroy']);
 });
 
 /**

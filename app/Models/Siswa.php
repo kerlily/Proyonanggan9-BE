@@ -51,16 +51,24 @@ class Siswa extends Authenticatable implements JWTSubject
     // relations
     public function kelas()
     {
-        return $this->belongsTo(Kelas::class, 'kelas_id');
-    }
-
-    public function riwayatKelas()
-    {
-        return $this->hasMany(RiwayatKelas::class, 'siswa_id');
+        return $this->belongsTo(Kelas::class);
     }
 
     public function nilai()
     {
-        return $this->hasMany(Nilai::class, 'siswa_id');
+        return $this->hasMany(Nilai::class);
+    }
+     // ADD THIS: Relationship to riwayat_kelas
+    public function riwayatKelas()
+    {
+        return $this->hasMany(RiwayatKelas::class);
+    }
+      // Helper method to get class for specific academic year
+    public function getKelasForTahunAjaran($tahunAjaranId)
+    {
+        return $this->riwayatKelas()
+            ->with('kelas')
+            ->where('tahun_ajaran_id', $tahunAjaranId)
+            ->first()?->kelas;
     }
 }

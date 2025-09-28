@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
+use App\Models\TahunAjaran;
 
 class NilaiController extends Controller
 {
@@ -19,18 +20,35 @@ class NilaiController extends Controller
             'catatan' => ['nullable','string'],
         ]);
 
+        // Get active tahun ajaran
+        $activeTahunAjaran = TahunAjaran::where('is_active', true)->first();
+        if (!$activeTahunAjaran) {
+            return response()->json(['message' => 'Tidak ada tahun ajaran aktif'], 400);
+        }
+
+        // Verify semester belongs to active tahun ajaran
+        $semester = DB::table('semester')
+            ->where('id', $data['semester_id'])
+            ->where('tahun_ajaran_id', $activeTahunAjaran->id)
+            ->first();
+
+        if (!$semester) {
+            return response()->json(['message' => 'Semester tidak sesuai dengan tahun ajaran aktif'], 400);
+        }
+
         // ensure siswa belongs to kelas_id
         $siswa = DB::table('siswa')->where('id', $data['siswa_id'])->first();
         if (! $siswa || $siswa->kelas_id != $kelas_id) {
             return response()->json(['message' => 'Siswa not in this class'], 422);
         }
 
-        // upsert unique (siswa,mapel,semester)
+        // upsert unique (siswa,mapel,semester,tahun_ajaran)
         $id = DB::table('nilai')->updateOrInsert(
             [
                 'siswa_id' => $data['siswa_id'],
                 'mapel_id' => $data['mapel_id'],
                 'semester_id' => $data['semester_id'],
+                'tahun_ajaran_id' => $activeTahunAjaran->id, // ADD THIS
             ],
             [
                 'nilai' => $data['nilai'],
@@ -57,6 +75,12 @@ class NilaiController extends Controller
         $siswa = DB::table('siswa')->where('id', $record->siswa_id)->first();
         if (! $siswa || $siswa->kelas_id != $kelas_id) {
             return response()->json(['message' => 'Siswa not in this class'], 422);
+        }
+
+        // Additional check: verify record belongs to active tahun ajaran
+        $activeTahunAjaran = TahunAjaran::where('is_active', true)->first();
+        if ($activeTahunAjaran && $record->tahun_ajaran_id != $activeTahunAjaran->id) {
+            return response()->json(['message' => 'Cannot update nilai from previous academic year'], 422);
         }
 
         DB::table('nilai')->where('id', $id)->update([

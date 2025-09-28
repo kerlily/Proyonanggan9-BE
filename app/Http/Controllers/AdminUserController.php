@@ -114,4 +114,156 @@ class AdminUserController extends Controller
             return response()->json(['message' => 'Error creating siswa: '.$e->getMessage()], 500);
         }
     }
+
+     public function updateSiswa(Request $request, $id)
+    {
+        $siswa = Siswa::find($id);
+        if (!$siswa) {
+            return response()->json(['message' => 'Siswa not found'], 404);
+        }
+
+        // Validasi (sesuaikan field yang kamu pakai)
+        $validated = $request->validate([
+            'nama' => 'sometimes|string|max:255',
+            'tahun_lahir' => 'sometimes|integer|min:1900|max:'.(date('Y')),
+            'kelas_id' => 'sometimes|exists:kelas,id',
+            'is_alumni' => 'sometimes|boolean',
+        ]);
+
+        DB::beginTransaction();
+        try {
+            // handle foto jika ada
+            if ($request->hasFile('foto')) {
+                // hapus foto lama jika ada
+                if ($siswa->foto) {
+                    Storage::delete($siswa->foto);
+                }
+                $path = $request->file('foto')->store('siswa');
+                $validated['foto'] = $path;
+            }
+
+            $siswa->update($validated);
+
+            DB::commit();
+            return response()->json(['message' => 'Siswa updated', 'siswa' => $siswa], 200);
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            return response()->json(['message' => 'Error updating siswa: '.$e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * Delete Siswa + related records (nilai, riwayat_kelas)
+     */
+    public function deleteSiswa($id)
+    {
+        $siswa = Siswa::find($id);
+        if (!$siswa) {
+            return response()->json(['message' => 'Siswa not found'], 404);
+        }
+
+        DB::beginTransaction();
+        try {
+            // Hapus nilai terkait
+            Nilai::where('siswa_id', $siswa->id)->delete();
+
+            // Hapus riwayat_kelas terkait
+            RiwayatKelas::where('siswa_id', $siswa->id)->delete();
+
+            // Hapus file foto jika ada
+            if ($siswa->foto) {
+                Storage::delete($siswa->foto);
+            }
+
+            // Hapus record siswa
+            $siswa->delete();
+
+            DB::commit();
+            return response()->json(['message' => 'Siswa deleted'], 200);
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            return response()->json(['message' => 'Error deleting siswa: '.$e->getMessage()], 500);
+        }
+    }
+
+    public function indexSiswa(Request $request)
+    {
+        $perPage = (int) $request->query('per_page', 15);
+        $search  = $request->query('search', null);
+        $kelas   = $request->query('kelas', null);
+        $sortBy  = $request->query('sort_by', 'nama');
+        $sortDir = strtolower($request->query('sort_dir', 'asc')) === 'desc' ? 'desc' : 'asc';
+
+        $query = Siswa::query();
+
+        // Eager load relasi kelas jika ada
+        if (method_exists(Siswa::class, 'riwayatKelas')) {
+            $query->with(['riwayatKelas' => function($q) {
+                // ambil riwayat terbaru untuk performa (sesuaikan jika mau semua)
+                $q->with('kelas')->latest('id')->limit(1);
+            }]);
+        }
+
+        // Search: nama atau nis
+        if ($search) {
+            $query->where(function($q) use ($search) {
+                $q->where('nama', 'like', "%{$search}%")
+                  ->orWhere('nis', 'like', "%{$search}%");
+            });
+        }
+
+        // Filter by kelas: coba via relasi riwayatKelas -> kelas
+        if ($kelas) {
+            if (method_exists(Siswa::class, 'riwayatKelas')) {
+                $query->whereHas('riwayatKelas.kelas', function($q) use ($kelas) {
+                    $q->where('id', $kelas)->orWhere('nama', 'like', "%{$kelas}%");
+                });
+            } else {
+                // fallback: jika ada kolom kelas_id langsung pada table siswa
+                if (\Schema::hasColumn('siswa', 'kelas_id')) {
+                    $query->where('kelas_id', $kelas);
+                }
+            }
+        }
+
+        // Guard allowed sort columns
+        $allowedSort = ['nama', 'nis', 'created_at', 'updated_at'];
+        if (! in_array($sortBy, $allowedSort)) {
+            $sortBy = 'nama';
+        }
+
+        $result = $query->orderBy($sortBy, $sortDir)
+                        ->paginate($perPage)
+                        ->appends($request->query());
+
+        return response()->json($result, 200);
+    }
+
+    /**
+     * Detail siswa untuk admin (include relasi penting)
+     */
+    public function showSiswa($id)
+    {
+        $siswa = Siswa::with([
+            // sesuaikan nama relasi jika berbeda di model-mu
+            'nilai' => function($q) { $q->orderBy('semester'); },
+            'riwayatKelas.kelas',
+            'user' // jika Siswa ber-relasi ke user model (opsional)
+        ])->find($id);
+
+        if (! $siswa) {
+            return response()->json(['message' => 'Siswa not found'], 404);
+        }
+
+        // contoh meta sederhana
+        $meta = [
+            'total_nilai' => method_exists($siswa, 'nilai') ? $siswa->nilai()->count() : null,
+            'riwayat_count' => $siswa->riwayatKelas ? $siswa->riwayatKelas->count() : 0
+        ];
+
+        return response()->json([
+            'siswa' => $siswa,
+            'meta' => $meta
+        ], 200);
+    }
 }

@@ -22,7 +22,7 @@ class AdminAcademicYearController extends Controller
      * - copy_wali (optional) : boolean, if true will copy wali_kelas from previous year
      *
      * Optional query param:
-     * - dry_run=1 : simulate changes and return a detailed plan without saving.
+     * - ?dry_run=1 : simulate changes and return a detailed plan without saving.
      *
      * Route: POST /api/admin/tahun-ajaran/change
      * Middleware: auth:api, is_admin
