@@ -18,6 +18,7 @@ use App\Http\Controllers\WaliKelasController;
 use App\Http\Controllers\PublicGuruController;
 use App\Http\Controllers\GalleryController;
 use App\Http\Controllers\PublicKelasController;
+use App\Http\Controllers\TahunAjaranController;
 
 
 /*
@@ -100,6 +101,10 @@ Route::prefix('admin')->middleware(['auth:api', 'is_admin'])->group(function () 
     Route::post('/siswa', [AdminUserController::class, 'createSiswa']); // json
     Route::post('/siswa/{id}', [AdminUserController::class, 'updateSiswa']);
     Route::delete('/siswa/{id}', [AdminUserController::class, 'deleteSiswa']);
+    Route::get('/guru/{id}', [AdminUserController::class, 'showGuru']);
+Route::post('/guru/{id}', [AdminUserController::class, 'updateGuru']); // update via POST (you used same pattern for siswa)
+Route::delete('/guru/{id}', [AdminUserController::class, 'deleteGuru']);
+
 
 // Daftar siswa untuk admin (pagination, search by nama/nis, filter kelas, sort)
 Route::get('/siswa', [AdminUserController::class, 'indexSiswa']);
@@ -194,4 +199,32 @@ Route::prefix('admin')->middleware(['auth:api', 'role:admin,guru'])->group(funct
     Route::get('/siswa/{siswa_id}/nilai', [AdminSiswaNilaiController::class, 'index']);
     Route::get('/siswa/{siswa_id}/nilai/semester/{semester_id}', [AdminSiswaNilaiController::class, 'bySemester']);
     Route::get('/siswa/{siswa_id}/nilai/{nilai_id}', [AdminSiswaNilaiController::class, 'show']);
+});
+
+
+/**
+ * -------------------------
+ * Tahun Ajaran - Public (semua user bisa akses)
+ * -------------------------
+ */
+// Get tahun ajaran aktif - bisa diakses tanpa auth atau dengan auth
+Route::get('/tahun-ajaran/active', [TahunAjaranController::class, 'getActive']);
+
+/**
+ * -------------------------
+ * Tahun Ajaran - Admin Only
+ * -------------------------
+ */
+Route::prefix('admin')->middleware(['auth:api', 'is_admin'])->group(function () {
+    // CRUD tahun ajaran
+    Route::get('/tahun-ajaran', [TahunAjaranController::class, 'index']);
+    Route::get('/tahun-ajaran/{id}', [TahunAjaranController::class, 'show']);
+    Route::post('/tahun-ajaran', [TahunAjaranController::class, 'store']);
+    Route::put('/tahun-ajaran/{id}', [TahunAjaranController::class, 'update']);
+    Route::delete('/tahun-ajaran/{id}', [TahunAjaranController::class, 'destroy']);
+
+    // Toggle semester aktif
+    Route::post('/semester/{id}/toggle-active', [TahunAjaranController::class, 'toggleSemester']);
+
+    Route::get('/guru', [AdminUserController::class, 'indexGuru']);
 });

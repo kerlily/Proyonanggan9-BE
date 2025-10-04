@@ -11,13 +11,13 @@ class AdminResetPasswordController extends Controller
     /**
      * Reset password guru/admin (User)
      */
-    public function resetUserPassword(Request $request, $id)
+    public function resetUserPassword(Request $request, $user_id)
     {
         $request->validate([
             'new_password' => 'required|string|min:8|confirmed',
         ]);
 
-        $user = User::findOrFail($id);
+        $user = User::findOrFail($user_id);
         $user->password = $request->new_password; // mutator di model otomatis hash
         $user->save();
 
