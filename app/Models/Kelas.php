@@ -35,4 +35,9 @@ class Kelas extends Model
         if (! $tahun) return null;
         return $this->waliKelasAssignments()->where('tahun_ajaran_id', $tahun->id)->with('guru')->first();
     }
+    public function mapels()
+{
+    return $this->belongsToMany(Mapel::class, 'kelas_mapel', 'kelas_id', 'mapel_id')
+                ->withTimestamps();
+}
 }

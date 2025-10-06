@@ -26,14 +26,16 @@ class TemplateController extends Controller
             ->orderBy('nama')
             ->get(['nama']);
 
-        // ambil daftar mapel dari DB; jika kosong gunakan fallback
-        $mapels = DB::table('mapel')->orderBy('nama')->pluck('nama')->toArray();
-        if (empty($mapels)) {
-            $mapels = [
-                'Matematika', 'Bahasa Indonesia', 'IPA', 'IPS',
-                'Pendidikan Agama', 'PJOK', 'Seni Budaya', 'PKN'
-            ];
-        }
+        // Ambil kelas dengan mapel yang sudah di-assign
+$kelas = \App\Models\Kelas::with('mapels')->findOrFail($kelas_id);
+$mapels = $kelas->mapels->sortBy('nama')->pluck('nama')->toArray();
+
+// Fallback jika kelas belum ada mapel assigned
+if (empty($mapels)) {
+    return response()->json([
+        'message' => "Kelas {$kelas->nama} belum memiliki mapel yang di-assign. Silakan assign mapel terlebih dahulu melalui menu admin."
+    ], 422);
+}
 
         // buat spreadsheet
         $spreadsheet = new Spreadsheet();

@@ -97,14 +97,26 @@ class ImportNilaiController extends Controller
             return response()->json(['message' => "Tidak ada kolom mapel (mata pelajaran) ditemukan di header."], 400);
         }
 
-        // prefetch siswa and mapel
-        $siswaRows = DB::table('siswa')->where('kelas_id', $kelas_id)->get(['id','nama']);
-        $siswaByNorm = [];
-        foreach ($siswaRows as $s) {
-            $siswaByNorm[$this->normalize($s->nama)][] = ['id'=>$s->id, 'nama'=>$s->nama];
-        }
+        // prefetch siswa and mapel (HANYA yang di-assign ke kelas ini)
+$kelas = \App\Models\Kelas::with('mapels')->findOrFail($kelas_id);
 
-        $mapelRows = DB::table('mapel')->get(['id','nama']);
+$siswaRows = DB::table('siswa')->where('kelas_id', $kelas_id)->get(['id','nama']);
+$siswaByNorm = [];
+foreach ($siswaRows as $s) {
+    $siswaByNorm[$this->normalize($s->nama)][] = ['id'=>$s->id, 'nama'=>$s->nama];
+}
+
+// ✅ BENAR: hanya mapel yang di-assign ke kelas ini
+$mapelRows = $kelas->mapels;
+
+// Validasi: cek apakah kelas punya mapel
+if ($mapelRows->isEmpty()) {
+    return response()->json([
+        'message' => "Kelas {$kelas->nama} belum memiliki mapel yang di-assign. Silakan assign mapel terlebih dahulu."
+    ], 422);
+}
+
+        // prefetch mapel
         $mapelByNorm = [];
         foreach ($mapelRows as $m) $mapelByNorm[$this->normalize($m->nama)] = ['id'=>$m->id, 'nama'=>$m->nama];
 

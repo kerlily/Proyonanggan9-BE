@@ -19,8 +19,8 @@ use App\Http\Controllers\PublicGuruController;
 use App\Http\Controllers\GalleryController;
 use App\Http\Controllers\PublicKelasController;
 use App\Http\Controllers\TahunAjaranController;
-
-
+use App\Http\Controllers\MapelController;
+use App\Http\Controllers\KelasMapelController;
 /*
 |--------------------------------------------------------------------------
 | API Routes
@@ -102,15 +102,15 @@ Route::prefix('admin')->middleware(['auth:api', 'is_admin'])->group(function () 
     Route::post('/siswa/{id}', [AdminUserController::class, 'updateSiswa']);
     Route::delete('/siswa/{id}', [AdminUserController::class, 'deleteSiswa']);
     Route::get('/guru/{id}', [AdminUserController::class, 'showGuru']);
-Route::post('/guru/{id}', [AdminUserController::class, 'updateGuru']); // update via POST (you used same pattern for siswa)
-Route::delete('/guru/{id}', [AdminUserController::class, 'deleteGuru']);
+    Route::post('/guru/{id}', [AdminUserController::class, 'updateGuru']); // update via POST (you used same pattern for siswa)
+    Route::delete('/guru/{id}', [AdminUserController::class, 'deleteGuru']);
 
 
-// Daftar siswa untuk admin (pagination, search by nama/nis, filter kelas, sort)
-Route::get('/siswa', [AdminUserController::class, 'indexSiswa']);
+    // Daftar siswa untuk admin (pagination, search by nama/nis, filter kelas, sort)
+    Route::get('/siswa', [AdminUserController::class, 'indexSiswa']);
 
-// Detail siswa
-Route::get('/siswa/{id}', [AdminUserController::class, 'showSiswa']);
+    // Detail siswa
+    Route::get('/siswa/{id}', [AdminUserController::class, 'showSiswa']);
 
     // Wali Kelas management
     Route::get('wali-kelas', [WaliKelasController::class, 'index']); // optional ?tahun_ajaran_id=#
@@ -124,6 +124,33 @@ Route::get('/siswa/{id}', [AdminUserController::class, 'showSiswa']);
     // Reset passwords
     Route::post('/guru/{id}/reset-password', [AdminResetPasswordController::class, 'resetUserPassword']);
     Route::post('/siswa/{id}/reset-password', [AdminResetPasswordController::class, 'resetSiswaPassword']);
+
+     // ===========================
+    // CRUD Mapel (Master Data)
+    // ===========================
+    Route::get('/mapel', [MapelController::class, 'index']);           // List dengan pagination & search
+    Route::get('/mapel/{id}', [MapelController::class, 'show']);       // Detail mapel
+    Route::post('/mapel', [MapelController::class, 'store']);          // Create mapel
+    Route::put('/mapel/{id}', [MapelController::class, 'update']);     // Update mapel
+    Route::delete('/mapel/{id}', [MapelController::class, 'destroy']); // Delete mapel
+    Route::post('/mapel/bulk', [MapelController::class, 'bulkStore']); // Bulk create mapel
+
+    // ===========================
+    // Manage Mapel per Kelas
+    // ===========================
+
+    // Statistics & Monitoring
+    Route::get('/kelas-mapel/statistics', [KelasMapelController::class, 'statistics']); // Dashboard statistik
+
+    // Manage mapel untuk satu kelas
+    Route::get('/kelas/{kelas_id}/mapel/available', [KelasMapelController::class, 'available']); // Mapel yang bisa ditambahkan
+    Route::post('/kelas/{kelas_id}/mapel', [KelasMapelController::class, 'assign']);              // Assign multiple mapel (replace)
+    Route::post('/kelas/{kelas_id}/mapel/{mapel_id}', [KelasMapelController::class, 'attach']);   // Tambah 1 mapel
+    Route::delete('/kelas/{kelas_id}/mapel/{mapel_id}', [KelasMapelController::class, 'detach']); // Hapus 1 mapel
+
+    // Copy & Bulk operations
+    Route::post('/kelas/{kelas_id}/mapel/copy-from/{source_kelas_id}', [KelasMapelController::class, 'copyFrom']); // Copy dari kelas lain
+    Route::post('/kelas-mapel/bulk-assign', [KelasMapelController::class, 'bulkAssign']); // Assign ke multiple kelas sekaligus
 });
 
 /**
@@ -150,23 +177,24 @@ Route::middleware(['auth:api', 'wali.kelas'])->group(function () {
     Route::post('/kelas/{kelas_id}/semester/{semester_id}/import-nilai', [ImportNilaiController::class, 'import']);
 });
 
-/**
- * -------------------------
- * Berita
- * - Publik: list & show
- * - CRUD: guru/admin (auth:api + role:admin,guru)
- * -------------------------
- */
-Route::get('/beritas', [BeritaController::class, 'index']);
-Route::get('/beritas/{id}', [BeritaController::class, 'show']);
-Route::get('/public/guru', [PublicGuruController::class, 'index']);
-Route::get('/public/guru/{id}', [PublicGuruController::class, 'show']);
-Route::get('/galleries', [GalleryController::class, 'index']);
-Route::get('/galleries/{id}', [GalleryController::class, 'show']);
+    /**
+     * -------------------------
+     * Berita
+     * - Publik: list & show
+     * - CRUD: guru/admin (auth:api + role:admin,guru)
+     * -------------------------
+     */
+    Route::get('/beritas', [BeritaController::class, 'index']);
+    Route::get('/beritas/{id}', [BeritaController::class, 'show']);
+    Route::get('/public/guru', [PublicGuruController::class, 'index']);
+    Route::get('/public/guru/{id}', [PublicGuruController::class, 'show']);
+    Route::get('/galleries', [GalleryController::class, 'index']);
+    Route::get('/galleries/{id}', [GalleryController::class, 'show']);
+    Route::get('/mapel/all', [MapelController::class, 'all']);
 
-// Public endpoints untuk frontend (dropdown kelas & daftar siswa per kelas)
-Route::get('/kelas', [PublicKelasController::class, 'index']);
-Route::get('/kelas/{kelas_id}/siswa', [PublicKelasController::class, 'siswaByKelas']);
+    // Public endpoints untuk frontend (dropdown kelas & daftar siswa per kelas)
+    Route::get('/kelas', [PublicKelasController::class, 'index']);
+    Route::get('/kelas/{kelas_id}/siswa', [PublicKelasController::class, 'siswaByKelas']);
 
 
 Route::middleware(['auth:api', 'role:admin,guru'])->group(function () {
