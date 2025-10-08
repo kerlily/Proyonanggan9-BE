@@ -227,18 +227,27 @@ class TahunAjaranController extends Controller
         }
     }
 
-    /**
+   /**
      * Toggle semester aktif (untuk admin)
      * Route: POST /api/admin/semester/{id}/toggle-active
      */
     public function toggleSemester($semesterId)
     {
-        $semester = Semester::find($semesterId);
+        $semester = Semester::with('tahunAjaran')->find($semesterId);
 
         if (!$semester) {
             return response()->json([
                 'message' => 'Semester tidak ditemukan'
             ], 404);
+        }
+
+        // Validasi: semester harus milik tahun ajaran yang aktif
+        if (!$semester->tahunAjaran || !$semester->tahunAjaran->is_active) {
+            return response()->json([
+                'message' => 'Semester hanya bisa diaktifkan pada tahun ajaran yang sedang aktif',
+                'current_tahun_ajaran' => $semester->tahunAjaran ? $semester->tahunAjaran->nama : null,
+                'is_active' => $semester->tahunAjaran ? $semester->tahunAjaran->is_active : false
+            ], 422);
         }
 
         try {
@@ -257,7 +266,16 @@ class TahunAjaranController extends Controller
 
             return response()->json([
                 'message' => 'Semester berhasil diaktifkan',
-                'data' => $semester
+                'data' => [
+                    'id' => $semester->id,
+                    'nama' => $semester->nama,
+                    'is_active' => $semester->is_active,
+                    'tahun_ajaran' => [
+                        'id' => $semester->tahunAjaran->id,
+                        'nama' => $semester->tahunAjaran->nama,
+                        'is_active' => $semester->tahunAjaran->is_active
+                    ]
+                ]
             ]);
 
         } catch (\Exception $e) {
