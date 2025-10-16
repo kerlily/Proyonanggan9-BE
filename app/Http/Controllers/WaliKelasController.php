@@ -82,18 +82,17 @@ class WaliKelasController extends Controller
         }
     }
 
-    // unassign (set guru_id = null) or delete record
+    // unassign - delete record sepenuhnya
     public function unassign(Request $request, $id)
     {
         $wk = WaliKelas::find($id);
-        if (! $wk) return response()->json(['message' => 'Not found'], 404);
+        if (! $wk) {
+            return response()->json(['message' => 'Not found'], 404);
+        }
 
-        // pilihan: set guru_id null
-        $wk->guru_id = null;
-        $wk->save();
+        // Hapus record sepenuhnya
+        $wk->delete();
 
-        // atau kalau ingin remove record: $wk->delete();
-
-        return response()->json(['message' => 'Wali unassigned', 'data' => $wk]);
+        return response()->json(['message' => 'Wali kelas berhasil dihapus'], 200);
     }
 }
