@@ -105,6 +105,17 @@ Route::prefix('admin')->middleware(['auth:api', 'is_admin'])->group(function () 
     Route::post('/guru/{id}', [AdminUserController::class, 'updateGuru']); // update via POST (you used same pattern for siswa)
     Route::delete('/guru/{id}', [AdminUserController::class, 'deleteGuru']);
 
+    // ===========================
+    // CRUD Admin Users
+    // ===========================
+    Route::get('/admins', [AdminUserController::class, 'indexAdmin']);
+    Route::get('/admins/{id}', [AdminUserController::class, 'showAdmin']);
+    Route::post('/admins', [AdminUserController::class, 'createAdmin']);
+    Route::put('/admins/{id}', [AdminUserController::class, 'updateAdmin']);
+    Route::delete('/admins/{id}', [AdminUserController::class, 'deleteAdmin']);
+    Route::post('/admins/{id}/reset-password', [AdminUserController::class, 'resetAdminPassword']);
+
+
 
     // Daftar siswa untuk admin (pagination, search by nama/nis, filter kelas, sort)
     Route::get('/siswa', [AdminUserController::class, 'indexSiswa']);

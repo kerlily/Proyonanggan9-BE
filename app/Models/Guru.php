@@ -4,7 +4,6 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
-use Illuminate\Support\Facades\Storage;
 
 class Guru extends Model
 {
@@ -12,7 +11,6 @@ class Guru extends Model
 
     protected $table = 'guru';
 
-    // tambahkan 'photo' ke fillable
     protected $fillable = [
         'user_id',
         'nama',
@@ -42,41 +40,20 @@ class Guru extends Model
 
     /**
      * Accessor: getPhotoUrlAttribute
-     * Mengembalikan URL publik untuk photo, mencoba beberapa strategi:
-     * - kalau sudah absolute URL -> kembalikan apa adanya
-     * - kalau sudah mulai dengan 'storage/' -> url(...)
-     * - kalau disimpan di disk 'public' -> Storage::disk('public')->url(...)
-     * - fallback -> url('storage/guru_photos/<path>')
+     * FIXED: Pattern PERSIS seperti PublicGuruController
      */
     public function getPhotoUrlAttribute()
     {
-        $photo = $this->photo;
-
-        if (!$photo) {
+        if (!$this->photo) {
             return null;
         }
 
-        // already absolute
-        if (preg_match('/^https?:\\/\\//i', $photo)) {
-            return $photo;
+        // Jika sudah absolute URL, return as is
+        if (preg_match('/^https?:\\/\\//i', $this->photo)) {
+            return $this->photo;
         }
 
-        // already starts with storage/
-        if (str_starts_with($photo, 'storage/') || str_starts_with($photo, '/storage/')) {
-            return url($photo);
-        }
-
-        // try Storage disk 'public' (most common when using ->store('guru_photos','public'))
-        try {
-            $url = Storage::disk('public')->url($photo);
-            if ($url) {
-                return $url;
-            }
-        } catch (\Throwable $e) {
-            // ignore and fallback
-        }
-
-        // fallback: assume folder storage/app/public/guru_photos
-        return url('storage/' . ltrim($photo, '/'));
+        // FIXED: Pattern SAMA dengan PublicGuruController
+        return url('storage/'.$this->photo);
     }
 }

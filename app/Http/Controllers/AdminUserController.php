@@ -8,13 +8,291 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Hash;
 use App\Models\User;
 use App\Models\Guru;
 use App\Models\Siswa;
 
 class AdminUserController extends Controller
 {
+/**
+     * ========================================
+     * CRUD ADMIN USER
+     * ========================================
+     */
 
+    /**
+     * List all admin users with pagination
+     * GET /api/admin/admins?search=name&per_page=15
+     */
+    public function indexAdmin(Request $request)
+    {
+        $perPage = (int) $request->query('per_page', 15);
+        $search = $request->query('search', null);
+
+        $query = User::where('role', 'admin');
+
+        if ($search) {
+            $query->where(function($q) use ($search) {
+                $q->where('name', 'like', "%{$search}%")
+                  ->orWhere('email', 'like', "%{$search}%");
+            });
+        }
+
+        $result = $query->orderBy('name')
+                        ->paginate($perPage)
+                        ->appends($request->query());
+
+        return response()->json($result, 200);
+    }
+
+    /**
+     * Show single admin user
+     * GET /api/admin/admins/{id}
+     */
+    public function showAdmin($id)
+    {
+        $user = User::where('role', 'admin')->find($id);
+
+        if (!$user) {
+            return response()->json(['message' => 'Admin not found'], 404);
+        }
+
+        return response()->json([
+            'admin' => [
+                'id' => $user->id,
+                'name' => $user->name,
+                'email' => $user->email,
+                'role' => $user->role,
+                'created_at' => $user->created_at,
+                'updated_at' => $user->updated_at,
+            ]
+        ], 200);
+    }
+
+    /**
+     * Create new admin user
+     * POST /api/admin/admins
+     * Body: { "name": "...", "email": "...", "password": "..." (optional) }
+     */
+    public function createAdmin(Request $request)
+    {
+        $validated = $request->validate([
+            'name' => 'required|string|max:255',
+            'email' => 'required|email|max:255|unique:users,email',
+            'password' => 'nullable|string|min:8',
+        ]);
+
+        $rawPassword = $validated['password'] ?? Str::random(12);
+
+        DB::beginTransaction();
+        try {
+            $user = User::create([
+                'name' => $validated['name'],
+                'email' => $validated['email'],
+                'password' => $rawPassword, // Model User sudah punya mutator setPasswordAttribute yang auto-hash
+                'role' => 'admin',
+            ]);
+
+            DB::commit();
+
+            \Illuminate\Support\Facades\Log::info('Admin created new admin user', [
+                'creator_id' => auth()->guard('api')->id(),
+                'new_admin_id' => $user->id,
+                'new_admin_email' => $user->email,
+            ]);
+
+            return response()->json([
+                'message' => 'Admin user created successfully',
+                'admin' => [
+                    'id' => $user->id,
+                    'name' => $user->name,
+                    'email' => $user->email,
+                    'role' => $user->role,
+                ],
+                'raw_password' => $rawPassword, // kirim password ke creator admin
+            ], 201);
+
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            return response()->json([
+                'message' => 'Error creating admin: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Update admin user
+     * PUT /api/admin/admins/{id}
+     * Body: { "name": "...", "email": "...", "password": "..." (optional) }
+     */
+    public function updateAdmin(Request $request, $id)
+    {
+        $user = User::where('role', 'admin')->find($id);
+
+        if (!$user) {
+            return response()->json(['message' => 'Admin not found'], 404);
+        }
+
+        $validated = $request->validate([
+            'name' => 'sometimes|string|max:255',
+            'email' => 'sometimes|email|max:255|unique:users,email,' . $id,
+            'password' => 'sometimes|nullable|string|min:8',
+        ]);
+
+        DB::beginTransaction();
+        try {
+            $rawPassword = null;
+
+            if (isset($validated['name'])) {
+                $user->name = $validated['name'];
+            }
+
+            if (isset($validated['email'])) {
+                $user->email = $validated['email'];
+            }
+
+            if (!empty($validated['password'])) {
+                $rawPassword = $validated['password'];
+                $user->password = $rawPassword; // mutator akan hash
+            }
+
+            $user->save();
+            DB::commit();
+
+            \Illuminate\Support\Facades\Log::info('Admin updated another admin user', [
+                'updater_id' => auth()->guard('api')->id(),
+                'updated_admin_id' => $user->id,
+            ]);
+
+            $response = [
+                'message' => 'Admin updated successfully',
+                'admin' => [
+                    'id' => $user->id,
+                    'name' => $user->name,
+                    'email' => $user->email,
+                    'role' => $user->role,
+                ],
+            ];
+
+            if ($rawPassword) {
+                $response['raw_password'] = $rawPassword;
+            }
+
+            return response()->json($response, 200);
+
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            return response()->json([
+                'message' => 'Error updating admin: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Delete admin user
+     * DELETE /api/admin/admins/{id}
+     *
+     * NOTE: Tidak bisa menghapus diri sendiri
+     */
+    public function deleteAdmin($id)
+    {
+        $user = User::where('role', 'admin')->find($id);
+
+        if (!$user) {
+            return response()->json(['message' => 'Admin not found'], 404);
+        }
+
+        // Prevent self-deletion
+        $currentUserId = auth()->guard('api')->id();
+        if ($user->id === $currentUserId) {
+            return response()->json([
+                'message' => 'Cannot delete your own admin account'
+            ], 422);
+        }
+
+        DB::beginTransaction();
+        try {
+            $adminData = [
+                'id' => $user->id,
+                'name' => $user->name,
+                'email' => $user->email,
+            ];
+
+            $user->delete();
+            DB::commit();
+
+            \Illuminate\Support\Facades\Log::info('Admin deleted another admin user', [
+                'deleter_id' => $currentUserId,
+                'deleted_admin' => $adminData,
+            ]);
+
+            return response()->json([
+                'message' => 'Admin deleted successfully'
+            ], 200);
+
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            return response()->json([
+                'message' => 'Error deleting admin: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Reset admin password
+     * POST /api/admin/admins/{id}/reset-password
+     * Body: { "password": "..." } (optional, akan generate random jika kosong)
+     */
+    public function resetAdminPassword(Request $request, $id)
+    {
+        $user = User::where('role', 'admin')->find($id);
+
+        if (!$user) {
+            return response()->json(['message' => 'Admin not found'], 404);
+        }
+
+        $password = $request->input('password', null);
+        if (empty($password)) {
+            $password = Str::random(12);
+        } else {
+            // Validate password if provided
+            $request->validate([
+                'password' => 'string|min:8'
+            ]);
+        }
+
+        try {
+            $user->password = $password; // mutator akan hash
+            $user->save();
+
+            \Illuminate\Support\Facades\Log::info('Admin reset another admin password', [
+                'resetter_id' => auth()->guard('api')->id(),
+                'target_admin_id' => $user->id,
+            ]);
+
+            return response()->json([
+                'message' => 'Admin password reset successfully',
+                'admin' => [
+                    'id' => $user->id,
+                    'name' => $user->name,
+                    'email' => $user->email,
+                ],
+                'raw_password' => $password
+            ], 200);
+
+        } catch (\Throwable $e) {
+            return response()->json([
+                'message' => 'Error resetting password: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * ========================================
+     * CRUD GURU
+     * ========================================
+     */
     /**
  * Show single guru (admin)
  */
@@ -42,8 +320,7 @@ public function showGuru($id)
 
 /**
  * Update guru (admin)
- * Accepts multipart/form-data (photo optional).
- * Fields allowed: nama (guru), email (user), nip, no_hp, password (optional)
+ * FIXED: Proper validation, password handling, and field mapping
  */
 public function updateGuru(Request $request, $id)
 {
@@ -55,6 +332,7 @@ public function updateGuru(Request $request, $id)
     // validate input
     $validated = $request->validate([
         'nama' => 'sometimes|string|max:255',
+        'name' => 'sometimes|string|max:255', // Allow both 'nama' and 'name'
         'email' => 'sometimes|email|max:255|unique:users,email,'.$guru->user->id,
         'nip' => 'sometimes|nullable|string|max:50',
         'no_hp' => 'sometimes|nullable|string|max:50',
@@ -65,19 +343,26 @@ public function updateGuru(Request $request, $id)
     DB::beginTransaction();
     $oldPhoto = $guru->photo;
     try {
+        // FIXED: Handle both 'nama' and 'name' from frontend
+        $namaValue = $validated['nama'] ?? $validated['name'] ?? null;
+
         // update user email/name if provided
         if (isset($validated['email'])) {
             $guru->user->email = $validated['email'];
         }
-        if (isset($validated['nama'])) {
+        if ($namaValue) {
             // keep guru->nama and user->name in sync
-            $guru->user->name = $validated['nama'];
-            $guru->nama = $validated['nama'];
+            $guru->user->name = $namaValue;
+            $guru->nama = $namaValue;
         }
-        if (isset($validated['nip'])) $guru->nip = $validated['nip'];
-        if (isset($validated['no_hp'])) $guru->no_hp = $validated['no_hp'];
+        if (isset($validated['nip'])) {
+            $guru->nip = $validated['nip'];
+        }
+        if (isset($validated['no_hp'])) {
+            $guru->no_hp = $validated['no_hp'];
+        }
 
-        // handle password update (if provided)
+        // FIXED: handle password update properly
         $rawPassword = null;
         if (!empty($validated['password'])) {
             $rawPassword = $validated['password'];
@@ -104,7 +389,7 @@ public function updateGuru(Request $request, $id)
 
         return response()->json([
             'message' => 'Guru updated successfully',
-            'guru' => $guru,
+            'guru' => $guru->load('user'), // Reload with updated user
             'photo_url' => $photoUrl,
             'raw_password' => $rawPassword, // only present if password changed
         ], 200);
