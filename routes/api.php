@@ -21,6 +21,9 @@ use App\Http\Controllers\PublicKelasController;
 use App\Http\Controllers\TahunAjaranController;
 use App\Http\Controllers\MapelController;
 use App\Http\Controllers\KelasMapelController;
+use App\Http\Controllers\StrukturNilaiMapelController;
+use App\Http\Controllers\NilaiDetailController;
+
 /*
 |--------------------------------------------------------------------------
 | API Routes
@@ -266,4 +269,20 @@ Route::prefix('admin')->middleware(['auth:api', 'is_admin'])->group(function () 
     Route::post('/semester/{id}/toggle-active', [TahunAjaranController::class, 'toggleSemester']);
 
     Route::get('/guru', [AdminUserController::class, 'indexGuru']);
+});
+
+Route::middleware(['auth:api', 'is_admin_or_guru'])->group(function () {
+    Route::prefix('kelas/{kelas_id}')->group(function () {
+        Route::get('struktur-nilai', [StrukturNilaiMapelController::class, 'index']);
+        Route::post('struktur-nilai', [StrukturNilaiMapelController::class, 'store']);
+        Route::get('struktur-nilai/{id}', [StrukturNilaiMapelController::class, 'show']);
+        Route::put('struktur-nilai/{id}', [StrukturNilaiMapelController::class, 'update']);
+        Route::delete('struktur-nilai/{id}', [StrukturNilaiMapelController::class, 'destroy']);
+        Route::get('struktur-nilai/mapel/{mapel_id}/semester/{semester_id}', [StrukturNilaiMapelController::class, 'getByMapel']);
+
+        Route::get('struktur-nilai/{struktur_id}/nilai-detail', [NilaiDetailController::class, 'index']);
+        Route::post('struktur-nilai/{struktur_id}/nilai-detail/bulk', [NilaiDetailController::class, 'storeBulk']);
+        Route::post('struktur-nilai/{struktur_id}/generate-nilai-akhir', [NilaiDetailController::class, 'generateNilaiAkhir']);
+        Route::get('struktur-nilai/{struktur_id}/siswa/{siswa_id}', [NilaiDetailController::class, 'getSiswaDetail']);
+    });
 });

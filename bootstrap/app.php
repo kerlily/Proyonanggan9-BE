@@ -18,6 +18,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'wali.kelas' => \App\Http\Middleware\WaliKelasMiddleware::class,
             'is_admin'   => \App\Http\Middleware\AdminMiddleware::class,
+            'is_admin_or_guru' => \App\Http\Middleware\IsAdminOrGuru::class,
              'role'       => \App\Http\Middleware\RoleMiddleware::class,
              'can.view.jadwal' => \App\Http\Middleware\CanViewJadwal::class,
         ]);
