@@ -186,9 +186,12 @@ Route::middleware(['auth:api', 'wali.kelas'])->group(function () {
     Route::post('/kelas/{kelas_id}/jadwals/{id}', [JadwalController::class, 'update']);    // Update (file upload supported)
     Route::delete('/kelas/{kelas_id}/jadwals/{id}', [JadwalController::class, 'destroy']); // Delete
 
+
+
     // Template download & import nilai
     Route::get('/kelas/{kelas_id}/semester/{semester_id}/download-template', [TemplateController::class, 'downloadTemplate']);
     Route::post('/kelas/{kelas_id}/semester/{semester_id}/import-nilai', [ImportNilaiController::class, 'import']);
+
 });
 
     /**
@@ -218,6 +221,7 @@ Route::middleware(['auth:api', 'role:admin,guru'])->group(function () {
     Route::post('/galleries', [GalleryController::class, 'store']);
     Route::post('/galleries/{id}', [GalleryController::class, 'update']); // or use PUT/PATCH
     Route::delete('/galleries/{id}', [GalleryController::class, 'destroy']);
+
 });
 
 /**
@@ -251,6 +255,7 @@ Route::prefix('admin')->middleware(['auth:api', 'role:admin,guru'])->group(funct
  */
 // Get tahun ajaran aktif - bisa diakses tanpa auth atau dengan auth
 Route::get('/tahun-ajaran/active', [TahunAjaranController::class, 'getActive']);
+Route::get('/tahun-ajaran/{id}/semester', [TahunAjaranController::class, 'getSemestersByTahunAjaran']);
 
 /**
  * -------------------------
@@ -273,6 +278,7 @@ Route::prefix('admin')->middleware(['auth:api', 'is_admin'])->group(function () 
 
 Route::middleware(['auth:api', 'is_admin_or_guru'])->group(function () {
     Route::prefix('kelas/{kelas_id}')->group(function () {
+
         Route::get('struktur-nilai', [StrukturNilaiMapelController::class, 'index']);
         Route::post('struktur-nilai', [StrukturNilaiMapelController::class, 'store']);
         Route::get('struktur-nilai/{id}', [StrukturNilaiMapelController::class, 'show']);

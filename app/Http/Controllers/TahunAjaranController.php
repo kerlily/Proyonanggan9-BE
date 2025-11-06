@@ -285,4 +285,15 @@ class TahunAjaranController extends Controller
             ], 500);
         }
     }
+
+    public function getSemestersByTahunAjaran($id)
+{
+    $tahun = TahunAjaran::with('semesters')->find($id);
+
+    if (! $tahun) {
+        return response()->json(['message' => 'Tahun ajaran tidak ditemukan'], 404);
+    }
+
+    return response()->json(['data' => $tahun->semesters], 200);
+}
 }
