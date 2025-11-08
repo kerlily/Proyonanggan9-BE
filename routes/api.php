@@ -68,6 +68,8 @@ Route::prefix('siswa')->group(function () {
 Route::middleware(['auth:api'])->group(function () {
     Route::post('/me/profile', [ProfileController::class, 'updateUserProfile']);   // update nama/email/no_hp/photo
     Route::post('/me/password', [ProfileController::class, 'changeUserPassword']); // ganti password
+    Route::get('wali-kelas/me', [WaliKelasController::class, 'showByGuru']);
+
 });
 
 /**
@@ -90,6 +92,7 @@ Route::middleware(['auth:siswa'])->group(function () {
 Route::middleware(['auth:api', 'wali.kelas'])->group(function () {
     Route::post('/kelas/{kelas_id}/nilai', [NilaiController::class, 'store']);         // create / upsert nilai
     Route::put('/kelas/{kelas_id}/nilai/{id}', [NilaiController::class, 'update']);    // update nilai by id
+    Route::get('/kelas/{kelas_id}/nilaiKelas', [NilaiController::class, 'indexByKelas']);
 });
 
 /**

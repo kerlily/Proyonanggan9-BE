@@ -95,4 +95,24 @@ class WaliKelasController extends Controller
 
         return response()->json(['message' => 'Wali kelas berhasil dihapus'], 200);
     }
+
+    public function showByGuru(Request $request)
+{
+    $user = auth()->guard('api')->user();
+    $guru = $user->guru;
+
+    if (!$guru) {
+        return response()->json(['message' => 'Not a guru'], 403);
+    }
+
+    $tahunId = $request->query('tahun_ajaran_id')
+        ?? TahunAjaran::where('is_active', true)->value('id');
+
+    $waliKelas = WaliKelas::with(['kelas', 'tahunAjaran'])
+        ->where('guru_id', $guru->id)
+        ->where('tahun_ajaran_id', $tahunId)
+        ->get();
+
+    return response()->json($waliKelas);
+}
 }

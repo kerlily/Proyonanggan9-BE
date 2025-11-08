@@ -102,4 +102,48 @@ class NilaiController extends Controller
 
         return response()->json(['message' => 'Nilai updated']);
     }
+
+    public function indexByKelas(Request $request, $kelas_id)
+{
+    $semesterId = $request->query('semester_id');
+    $tahunId = TahunAjaran::where('is_active', true)->value('id');
+
+    // Get siswa di kelas
+    $siswaList = DB::table('siswa')
+        ->where('kelas_id', $kelas_id)
+        ->orderBy('nama')
+        ->get(['id', 'nama']);
+
+    // Get nilai
+    $query = DB::table('nilai')
+        ->join('siswa', 'nilai.siswa_id', '=', 'siswa.id')
+        ->join('mapel', 'nilai.mapel_id', '=', 'mapel.id')
+        ->where('siswa.kelas_id', $kelas_id)
+        ->where('nilai.tahun_ajaran_id', $tahunId);
+
+    if ($semesterId) {
+        $query->where('nilai.semester_id', $semesterId);
+    }
+
+    $nilai = $query->select(
+        'nilai.*',
+        'siswa.nama as siswa_nama',
+        'mapel.nama as mapel_nama',
+        'mapel.kode as mapel_kode'
+    )->get();
+
+    // Group by siswa
+    $grouped = $siswaList->map(function($siswa) use ($nilai) {
+        return [
+            'siswa_id' => $siswa->id,
+            'siswa_nama' => $siswa->nama,
+            'nilai' => $nilai->where('siswa_id', $siswa->id)->values()
+        ];
+    });
+
+    return response()->json([
+        'kelas_id' => $kelas_id,
+        'data' => $grouped
+    ]);
+}
 }
