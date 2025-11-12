@@ -4,11 +4,13 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use App\Traits\LogsActivity;
 
 class Nilai extends Model
 {
-    use HasFactory;
-
+    use HasFactory, LogsActivity;
+    protected static $logAttributes = ['siswa_id', 'mapel_id', 'semester_id', 'tahun_ajaran_id', 'nilai', 'catatan'];
+    protected static $logName = 'nilai';
     protected $table = 'nilai';
 
     protected $fillable = [

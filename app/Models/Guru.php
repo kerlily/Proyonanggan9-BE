@@ -4,11 +4,12 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
-
+use App\Traits\LogsActivity;
 class Guru extends Model
 {
-    use HasFactory;
-
+    use HasFactory, LogsActivity;
+        protected static $logAttributes = ['nama', 'nip', 'no_hp'];
+    protected static $logName = 'guru';
     protected $table = 'guru';
 
     protected $fillable = [

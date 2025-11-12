@@ -7,11 +7,14 @@ use Illuminate\Notifications\Notifiable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Tymon\JWTAuth\Contracts\JWTSubject;
 use Illuminate\Support\Facades\Hash;
+use App\Traits\LogsActivity;
 
 class User extends Authenticatable implements JWTSubject
 {
-    use HasFactory, Notifiable;
+    use HasFactory, Notifiable, LogsActivity;
 
+    protected static $logAttributes = ['name', 'email', 'role'];
+    protected static $logName = 'users';
     protected $table = 'users';
 
     protected $fillable = [

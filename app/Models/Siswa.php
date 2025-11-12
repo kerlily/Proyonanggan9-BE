@@ -7,11 +7,13 @@ use Illuminate\Notifications\Notifiable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Tymon\JWTAuth\Contracts\JWTSubject;
 use Illuminate\Support\Facades\Hash;
+use App\Traits\LogsActivity;
 
 class Siswa extends Authenticatable implements JWTSubject
 {
-    use HasFactory, Notifiable;
-
+    use HasFactory, Notifiable, LogsActivity;
+    protected static $logAttributes = ['nama', 'tahun_lahir', 'kelas_id', 'is_alumni'];
+    protected static $logName = 'siswa';
     protected $table = 'siswa';
 
     protected $fillable = [
