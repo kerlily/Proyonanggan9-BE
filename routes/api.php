@@ -25,6 +25,9 @@ use App\Http\Controllers\StrukturNilaiMapelController;
 use App\Http\Controllers\NilaiDetailController;
 use App\Http\Controllers\ActivityLogController;
 use App\Http\Controllers\BackupController;
+use App\Http\Controllers\NilaiSikapController;
+use App\Http\Controllers\KetidakhadiranController;
+
 
 /*
 |--------------------------------------------------------------------------
@@ -92,9 +95,44 @@ Route::middleware(['auth:siswa'])->group(function () {
  * -------------------------
  */
 Route::middleware(['auth:api', 'wali.kelas'])->group(function () {
-    Route::post('/kelas/{kelas_id}/nilai', [NilaiController::class, 'store']);         // create / upsert nilai
-    Route::put('/kelas/{kelas_id}/nilai/{id}', [NilaiController::class, 'update']);    // update nilai by id
+    Route::post('/kelas/{kelas_id}/nilai', [NilaiController::class, 'store']);
+    Route::put('/kelas/{kelas_id}/nilai/{id}', [NilaiController::class, 'update']);
     Route::get('/kelas/{kelas_id}/nilaiKelas', [NilaiController::class, 'indexByKelas']);
+
+     // ===========================
+    // NILAI SIKAP
+    // ===========================
+
+    // Get semua nilai sikap di kelas (per semester)
+    Route::get('/kelas/{kelas_id}/nilai-sikap', [NilaiSikapController::class, 'index']);
+
+    // Store/Update satu nilai sikap siswa
+    Route::post('/kelas/{kelas_id}/nilai-sikap', [NilaiSikapController::class, 'store']);
+
+    // Bulk store nilai sikap untuk banyak siswa
+    Route::post('/kelas/{kelas_id}/nilai-sikap/bulk', [NilaiSikapController::class, 'bulkStore']);
+
+    // Delete nilai sikap
+    Route::delete('/kelas/{kelas_id}/nilai-sikap/{id}', [NilaiSikapController::class, 'destroy']);
+
+    // ===========================
+    // KETIDAKHADIRAN
+    // ===========================
+
+    // Get semua ketidakhadiran di kelas (per semester)
+    Route::get('/kelas/{kelas_id}/ketidakhadiran', [KetidakhadiranController::class, 'index']);
+
+    // Store/Update satu ketidakhadiran siswa
+    Route::post('/kelas/{kelas_id}/ketidakhadiran', [KetidakhadiranController::class, 'store']);
+
+    // Bulk store ketidakhadiran untuk banyak siswa
+    Route::post('/kelas/{kelas_id}/ketidakhadiran/bulk', [KetidakhadiranController::class, 'bulkStore']);
+
+    // Increment ketidakhadiran (tambah 1 ijin/sakit/alpa)
+    Route::post('/kelas/{kelas_id}/ketidakhadiran/{siswa_id}/increment', [KetidakhadiranController::class, 'increment']);
+
+    // Delete ketidakhadiran
+    Route::delete('/kelas/{kelas_id}/ketidakhadiran/{id}', [KetidakhadiranController::class, 'destroy']);
 });
 
 /**
@@ -203,8 +241,6 @@ Route::middleware(['auth:api', 'wali.kelas'])->group(function () {
     Route::post('/kelas/{kelas_id}/jadwals/{id}', [JadwalController::class, 'update']);    // Update (file upload supported)
     Route::delete('/kelas/{kelas_id}/jadwals/{id}', [JadwalController::class, 'destroy']); // Delete
 
-
-
     // Template download & import nilai
     Route::get('/kelas/{kelas_id}/semester/{semester_id}/download-template', [TemplateController::class, 'downloadTemplate']);
     Route::post('/kelas/{kelas_id}/semester/{semester_id}/import-nilai', [ImportNilaiController::class, 'import']);
@@ -251,6 +287,10 @@ Route::middleware(['auth:siswa'])->group(function () {
     Route::get('/siswa/me/nilai', [SiswaNilaiController::class, 'index']);
     Route::get('/siswa/me/nilai/semester/{semester_id}', [SiswaNilaiController::class, 'bySemester']);
     Route::get('/siswa/me/nilai/{id}', [SiswaNilaiController::class, 'show']);
+    // Nilai sikap siswa
+    Route::get('/siswa/me/nilai-sikap', [NilaiSikapController::class, 'siswaNilaiSikap']);
+    // Ketidakhadiran siswa
+    Route::get('/siswa/me/ketidakhadiran', [KetidakhadiranController::class, 'siswaKetidakhadiran']);
 });
 
 /**
@@ -262,6 +302,44 @@ Route::prefix('admin')->middleware(['auth:api', 'role:admin,guru'])->group(funct
     Route::get('/siswa/{siswa_id}/nilai', [AdminSiswaNilaiController::class, 'index']);
     Route::get('/siswa/{siswa_id}/nilai/semester/{semester_id}', [AdminSiswaNilaiController::class, 'bySemester']);
     Route::get('/siswa/{siswa_id}/nilai/{nilai_id}', [AdminSiswaNilaiController::class, 'show']);
+
+    // Get nilai sikap siswa tertentu (semua semester)
+    Route::get('/siswa/{siswa_id}/nilai-sikap', function($siswa_id) {
+        $siswa = \App\Models\Siswa::findOrFail($siswa_id);
+        $nilaiSikap = \App\Models\NilaiSikap::with(['semester.tahunAjaran', 'inputByGuru'])
+            ->where('siswa_id', $siswa_id)
+            ->orderByDesc('tahun_ajaran_id')
+            ->orderByDesc('semester_id')
+            ->get();
+
+        return response()->json([
+            'siswa' => [
+                'id' => $siswa->id,
+                'nama' => $siswa->nama,
+                'kelas' => $siswa->kelas ? $siswa->kelas->nama : null,
+            ],
+            'data' => $nilaiSikap
+        ]);
+    });
+
+    // Get ketidakhadiran siswa tertentu (semua semester)
+    Route::get('/siswa/{siswa_id}/ketidakhadiran', function($siswa_id) {
+        $siswa = \App\Models\Siswa::findOrFail($siswa_id);
+        $ketidakhadiran = \App\Models\Ketidakhadiran::with(['semester.tahunAjaran', 'inputByGuru'])
+            ->where('siswa_id', $siswa_id)
+            ->orderByDesc('tahun_ajaran_id')
+            ->orderByDesc('semester_id')
+            ->get();
+
+        return response()->json([
+            'siswa' => [
+                'id' => $siswa->id,
+                'nama' => $siswa->nama,
+                'kelas' => $siswa->kelas ? $siswa->kelas->nama : null,
+            ],
+            'data' => $ketidakhadiran
+        ]);
+    });
 });
 
 
