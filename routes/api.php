@@ -24,6 +24,7 @@ use App\Http\Controllers\KelasMapelController;
 use App\Http\Controllers\StrukturNilaiMapelController;
 use App\Http\Controllers\NilaiDetailController;
 use App\Http\Controllers\ActivityLogController;
+use App\Http\Controllers\BackupController;
 
 /*
 |--------------------------------------------------------------------------
@@ -181,8 +182,6 @@ Route::prefix('admin')->middleware(['auth:api', 'is_admin'])->group(function () 
 
     // Get activity logs by user
     Route::get('/activity-logs/user/{userId}', [ActivityLogController::class, 'userActivity']);
-
-
 });
 
 /**
