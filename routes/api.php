@@ -23,6 +23,7 @@ use App\Http\Controllers\MapelController;
 use App\Http\Controllers\KelasMapelController;
 use App\Http\Controllers\StrukturNilaiMapelController;
 use App\Http\Controllers\NilaiDetailController;
+use App\Http\Controllers\ActivityLogController;
 
 /*
 |--------------------------------------------------------------------------
@@ -168,6 +169,20 @@ Route::prefix('admin')->middleware(['auth:api', 'is_admin'])->group(function () 
     // Copy & Bulk operations
     Route::post('/kelas/{kelas_id}/mapel/copy-from/{source_kelas_id}', [KelasMapelController::class, 'copyFrom']); // Copy dari kelas lain
     Route::post('/kelas-mapel/bulk-assign', [KelasMapelController::class, 'bulkAssign']); // Assign ke multiple kelas sekaligus
+
+    // Get all activity logs dengan filter
+    Route::get('/activity-logs', [ActivityLogController::class, 'index']);
+
+    // Get detail activity log
+    Route::get('/activity-logs/{id}', [ActivityLogController::class, 'show']);
+
+    // Get statistics
+    Route::get('/activity-logs/stats', [ActivityLogController::class, 'stats']);
+
+    // Get activity logs by user
+    Route::get('/activity-logs/user/{userId}', [ActivityLogController::class, 'userActivity']);
+
+
 });
 
 /**
