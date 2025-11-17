@@ -212,11 +212,11 @@ Route::prefix('admin')->middleware(['auth:api', 'is_admin'])->group(function () 
     // Get all activity logs dengan filter
     Route::get('/activity-logs', [ActivityLogController::class, 'index']);
 
+        // Get statistics
+        Route::get('/activity-logs/stats', [ActivityLogController::class, 'stats']);
+
     // Get detail activity log
     Route::get('/activity-logs/{id}', [ActivityLogController::class, 'show']);
-
-    // Get statistics
-    Route::get('/activity-logs/stats', [ActivityLogController::class, 'stats']);
 
     // Get activity logs by user
     Route::get('/activity-logs/user/{userId}', [ActivityLogController::class, 'userActivity']);
