@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use App\Models\StrukturNilaiMapel;
 use App\Models\TahunAjaran;
+use App\Models\Kelas;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 
@@ -35,7 +36,7 @@ class StrukturNilaiMapelController extends Controller
         return response()->json($struktur);
     }
 
-    public function store(Request $request, $kelas_id)
+      public function store(Request $request, $kelas_id)
     {
         $user = Auth::guard('api')->user();
         $guruId = $user->guru ? $user->guru->id : null;
@@ -44,12 +45,18 @@ class StrukturNilaiMapelController extends Controller
             'mapel_id' => 'required|integer|exists:mapel,id',
             'semester_id' => 'required|integer|exists:semester,id',
             'struktur' => 'required|array',
-            'struktur.*.lm_key' => 'required|string',
-            'struktur.*.lm_label' => 'required|string',
-            'struktur.*.kolom' => 'required|array',
-            'struktur.*.kolom.*.kolom_key' => 'required|string',
-            'struktur.*.kolom.*.kolom_label' => 'required|string',
-            'struktur.*.kolom.*.tipe' => 'required|in:formatif,aslim,asas',
+            'struktur.lingkup_materi' => 'required|array|min:1',
+            'struktur.lingkup_materi.*.lm_key' => 'required|string',
+            'struktur.lingkup_materi.*.lm_label' => 'required|string',
+            'struktur.lingkup_materi.*.formatif' => 'required|array|min:1',
+            'struktur.lingkup_materi.*.formatif.*.kolom_key' => 'required|string',
+            'struktur.lingkup_materi.*.formatif.*.kolom_label' => 'required|string',
+            'struktur.aslim' => 'required|array',
+            'struktur.aslim.kolom_key' => 'required|string',
+            'struktur.aslim.kolom_label' => 'required|string',
+            'struktur.asas' => 'required|array',
+            'struktur.asas.kolom_key' => 'required|string',
+            'struktur.asas.kolom_label' => 'required|string',
         ]);
 
         $tahunId = TahunAjaran::where('is_active', true)->value('id');
@@ -64,6 +71,35 @@ class StrukturNilaiMapelController extends Controller
 
         if (!$semester) {
             return response()->json(['message' => 'Semester tidak sesuai dengan tahun ajaran aktif'], 400);
+        }
+
+        // Validasi mapel di-assign ke kelas
+        $kelas = Kelas::with('mapels')->findOrFail($kelas_id);
+        $mapelExists = $kelas->mapels()->where('mapel_id', $validated['mapel_id'])->exists();
+
+        if (!$mapelExists) {
+            $mapel = \App\Models\Mapel::find($validated['mapel_id']);
+            return response()->json([
+                'message' => "Mapel '{$mapel->nama}' tidak di-assign ke kelas {$kelas->nama}. Silakan assign mapel terlebih dahulu.",
+                'available_mapels' => $kelas->mapels->map(fn($m) => [
+                    'id' => $m->id,
+                    'nama' => $m->nama,
+                    'kode' => $m->kode
+                ])
+            ], 422);
+        }
+
+        // Cek duplikasi struktur
+        $exists = StrukturNilaiMapel::where('kelas_id', $kelas_id)
+            ->where('mapel_id', $validated['mapel_id'])
+            ->where('semester_id', $validated['semester_id'])
+            ->where('tahun_ajaran_id', $tahunId)
+            ->exists();
+
+        if ($exists) {
+            return response()->json([
+                'message' => 'Struktur nilai untuk mapel dan semester ini sudah ada. Gunakan update jika ingin mengubah.'
+            ], 422);
         }
 
         try {
@@ -165,6 +201,20 @@ class StrukturNilaiMapelController extends Controller
     {
         $tahunId = TahunAjaran::where('is_active', true)->value('id');
 
+        // ✅ Validasi mapel di-assign ke kelas
+        $kelas = Kelas::with('mapels')->findOrFail($kelas_id);
+        $mapelExists = $kelas->mapels()->where('mapel_id', $mapel_id)->exists();
+
+        if (!$mapelExists) {
+            return response()->json([
+                'message' => 'Mapel tidak di-assign ke kelas ini',
+                'available_mapels' => $kelas->mapels->map(fn($m) => [
+                    'id' => $m->id,
+                    'nama' => $m->nama
+                ])
+            ], 422);
+        }
+
         $struktur = StrukturNilaiMapel::with(['mapel', 'semester', 'tahunAjaran', 'createdByGuru'])
             ->where('kelas_id', $kelas_id)
             ->where('mapel_id', $mapel_id)
@@ -177,5 +227,37 @@ class StrukturNilaiMapelController extends Controller
         }
 
         return response()->json($struktur);
+    }
+
+    /**
+     * ✅ NEW: Get daftar mapel yang bisa dibuat strukturnya
+     */
+    public function getAvailableMapels($kelas_id, $semester_id)
+    {
+        $tahunId = TahunAjaran::where('is_active', true)->value('id');
+
+        $kelas = Kelas::with('mapels')->findOrFail($kelas_id);
+
+        // Ambil mapel yang sudah punya struktur
+        $mapelWithStruktur = StrukturNilaiMapel::where('kelas_id', $kelas_id)
+            ->where('semester_id', $semester_id)
+            ->where('tahun_ajaran_id', $tahunId)
+            ->pluck('mapel_id');
+
+        // Filter mapel yang belum punya struktur
+        $availableMapels = $kelas->mapels->whereNotIn('id', $mapelWithStruktur);
+
+        return response()->json([
+            'kelas' => [
+                'id' => $kelas->id,
+                'nama' => $kelas->nama
+            ],
+            'available_mapels' => $availableMapels->map(fn($m) => [
+                'id' => $m->id,
+                'nama' => $m->nama,
+                'kode' => $m->kode
+            ]),
+            'total' => $availableMapels->count()
+        ]);
     }
 }

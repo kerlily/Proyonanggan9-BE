@@ -11,11 +11,11 @@ class LogAuthActivity
     {
         $response = $next($request);
 
-        if ($request->is('api/auth/login') || $request->is('api/siswa/login')) {
+        if ($request->is('api/auth/login')) {
             $this->logAuthAttempt($request, $response);
         }
 
-        if ($request->is('api/auth/logout') || $request->is('api/siswa/logout')) {
+        if ($request->is('api/auth/logout')) {
             $this->logLogout($request);
         }
 
@@ -25,8 +25,6 @@ class LogAuthActivity
     protected function logAuthAttempt($request, $response)
     {
         $status = $response->getStatusCode();
-        $isSiswa = $request->is('api/siswa/login');
-        $userType = $isSiswa ? 'siswa' : 'user';
 
         if ($status === 200) {
             $data = json_decode($response->getContent(), true);
@@ -34,14 +32,11 @@ class LogAuthActivity
 
             if ($user) {
                 activity()
-                    ->causedBy($userType === 'siswa' ?
-                        \App\Models\Siswa::find($user['id']) :
-                        \App\Models\User::find($user['id'])
-                    )
+                    ->causedBy(\App\Models\User::find($user['id']))
                     ->withProperties([
                         'ip_address' => $request->ip(),
                         'user_agent' => $request->userAgent(),
-                        'user_type' => $userType,
+                        'user_type' => 'user',
                     ])
                     ->log('Login successful');
             }
@@ -50,8 +45,8 @@ class LogAuthActivity
                 ->withProperties([
                     'ip_address' => $request->ip(),
                     'user_agent' => $request->userAgent(),
-                    'credentials' => $request->only(['email', 'nama', 'kelas_id']),
-                    'user_type' => $userType,
+                    'credentials' => $request->only(['email']),
+                    'user_type' => 'user',
                 ])
                 ->log('Login failed');
         }
@@ -59,8 +54,7 @@ class LogAuthActivity
 
     protected function logLogout($request)
     {
-        $guard = $request->is('api/siswa/logout') ? 'siswa' : 'api';
-        $user = auth($guard)->user();
+        $user = auth('api')->user();
 
         if ($user) {
             activity()
@@ -68,7 +62,7 @@ class LogAuthActivity
                 ->withProperties([
                     'ip_address' => $request->ip(),
                     'user_agent' => $request->userAgent(),
-                    'user_type' => $guard === 'siswa' ? 'siswa' : 'user',
+                    'user_type' => 'user',
                 ])
                 ->log('Logout');
         }

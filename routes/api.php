@@ -267,6 +267,10 @@ Route::middleware(['auth:api', 'wali.kelas'])->group(function () {
     Route::get('/kelas/{kelas_id}/siswa', [PublicKelasController::class, 'siswaByKelas']);
 
 
+    // Route public untuk melihat mapel per kelas (bisa diakses tanpa auth)
+    Route::get('kelas/{kelas_id}/mapel', [KelasMapelController::class, 'index']);
+
+
 Route::middleware(['auth:api', 'role:admin,guru'])->group(function () {
     Route::post('/beritas', [BeritaController::class, 'store']);
     Route::post('/beritas/{id}', [BeritaController::class, 'update']);
@@ -369,6 +373,7 @@ Route::prefix('admin')->middleware(['auth:api', 'is_admin'])->group(function () 
     Route::post('/semester/{id}/toggle-active', [TahunAjaranController::class, 'toggleSemester']);
 
     Route::get('/guru', [AdminUserController::class, 'indexGuru']);
+
 });
 
 Route::middleware(['auth:api', 'is_admin_or_guru'])->group(function () {
@@ -381,9 +386,15 @@ Route::middleware(['auth:api', 'is_admin_or_guru'])->group(function () {
         Route::delete('struktur-nilai/{id}', [StrukturNilaiMapelController::class, 'destroy']);
         Route::get('struktur-nilai/mapel/{mapel_id}/semester/{semester_id}', [StrukturNilaiMapelController::class, 'getByMapel']);
 
-        Route::get('struktur-nilai/{struktur_id}/nilai-detail', [NilaiDetailController::class, 'index']);
+        Route::get('semester/{semester_id}/available-mapels', [StrukturNilaiMapelController::class, 'getAvailableMapels']);
+
+        Route::post('struktur-nilai/{struktur_id}/nilai-detail/single', [NilaiDetailController::class, 'storeSingle']);
         Route::post('struktur-nilai/{struktur_id}/nilai-detail/bulk', [NilaiDetailController::class, 'storeBulk']);
+        Route::get('struktur-nilai/{struktur_id}/nilai-detail', [NilaiDetailController::class, 'index']);
+        Route::get('struktur-nilai/{struktur_id}/progress', [NilaiDetailController::class, 'getProgress']);
         Route::post('struktur-nilai/{struktur_id}/generate-nilai-akhir', [NilaiDetailController::class, 'generateNilaiAkhir']);
         Route::get('struktur-nilai/{struktur_id}/siswa/{siswa_id}', [NilaiDetailController::class, 'getSiswaDetail']);
     });
+
+     Route::get('kelas/{kelas_id}/mapel', [KelasMapelController::class, 'index']);
 });
