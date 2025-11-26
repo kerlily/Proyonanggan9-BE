@@ -13,50 +13,47 @@ use Illuminate\Support\Facades\Log;
 
 class NilaiDetailController extends Controller
 {
-    public function index($kelas_id, $struktur_id)
-    {
-        $struktur = StrukturNilaiMapel::where('kelas_id', $kelas_id)->findOrFail($struktur_id);
+  public function index($kelas_id, $struktur_id)
+{
+    $struktur = StrukturNilaiMapel::where('kelas_id', $kelas_id)->findOrFail($struktur_id);
 
-        $nilaiDetails = NilaiDetail::with(['siswa', 'inputByGuru'])
-            ->where('struktur_nilai_mapel_id', $struktur_id)
-            ->get();
+    $nilaiDetails = NilaiDetail::with(['siswa', 'inputByGuru'])
+        ->where('struktur_nilai_mapel_id', $struktur_id)
+        ->get();
 
-        $siswaList = DB::table('siswa')->where('kelas_id', $kelas_id)->get(['id', 'nama']);
+    $siswaList = DB::table('siswa')->where('kelas_id', $kelas_id)->get(['id', 'nama']);
 
-        $grouped = [];
-        foreach ($siswaList as $siswa) {
-            $nilaiSiswa = $nilaiDetails->where('siswa_id', $siswa->id);
+    $grouped = [];
+    foreach ($siswaList as $siswa) {
+        $nilaiSiswa = $nilaiDetails->where('siswa_id', $siswa->id);
 
-            $nilaiData = [];
-            foreach ($nilaiSiswa as $n) {
-
-    // Jika lm_key = null → berarti ASLIM atau ASAS
-    if ($n->lm_key === null || $n->lm_key === "") {
-        $nilaiData[$n->kolom_key] = $n->nilai;
-        continue;
-    }
-
-    // Jika LM (lm1, lm2)
-    if (!isset($nilaiData[$n->lm_key])) {
-        $nilaiData[$n->lm_key] = [];
-    }
-
-    $nilaiData[$n->lm_key][$n->kolom_key] = $n->nilai;
-}
-
-
-            $grouped[] = [
-                'siswa_id' => $siswa->id,
-                'siswa_nama' => $siswa->nama,
-                'nilai_data' => $nilaiData,
-            ];
+        $nilaiData = [];
+        foreach ($nilaiSiswa as $n) {
+            // ✅ FIXED: Format untuk frontend React
+            if ($n->lm_key === null || $n->lm_key === "") {
+                // ASLIM/ASAS: simpan di root level
+                $nilaiData[$n->kolom_key] = $n->nilai;
+            } else {
+                // LM: simpan di nested object
+                if (!isset($nilaiData[$n->lm_key])) {
+                    $nilaiData[$n->lm_key] = [];
+                }
+                $nilaiData[$n->lm_key][$n->kolom_key] = $n->nilai;
+            }
         }
 
-        return response()->json([
-            'struktur' => $struktur,
-            'data' => $grouped,
-        ]);
+        $grouped[] = [
+            'siswa_id' => $siswa->id,
+            'siswa_nama' => $siswa->nama,
+            'nilai_data' => $nilaiData,
+        ];
     }
+
+    return response()->json([
+        'struktur' => $struktur,
+        'data' => $grouped,
+    ]);
+}
   public function storeSingle(Request $request, $kelas_id, $struktur_id)
 {
     $user = Auth::guard('api')->user();
@@ -120,7 +117,7 @@ public function storeBulk(Request $request, $kelas_id, $struktur_id)
     $validated = $request->validate([
         'data' => 'required|array',
         'data.*.siswa_id' => 'required|integer|exists:siswa,id',
-        // removed requirement for data.*.nilai_data to allow flexible formats
+        'data.*.nilai_data' => 'required|array', // ✅ PASTIKAN INI ADA
     ]);
 
     $saved = [];
@@ -139,15 +136,12 @@ public function storeBulk(Request $request, $kelas_id, $struktur_id)
                 continue;
             }
 
-            // Accept either: item['nilai_data'] OR item with nilai keys at root (except siswa_id)
-            $nilaiData = $item['nilai_data'] ?? null;
-            if ($nilaiData === null) {
-                // Build from item by removing siswa_id only
-                $nilaiData = $item;
-                unset($nilaiData['siswa_id']);
-            }
+            $nilaiData = $item['nilai_data'];
 
-            if (empty($nilaiData) || !is_array($nilaiData)) {
+            // ✅ DEBUG LOG
+            \Log::info("Nilai data received for siswa {$item['siswa_id']}:", $nilaiData);
+
+            if (empty($nilaiData)) {
                 $skipped[] = [
                     'siswa_id' => $item['siswa_id'],
                     'reason' => 'Tidak ada nilai yang dikirim untuk siswa ini'
@@ -157,39 +151,13 @@ public function storeBulk(Request $request, $kelas_id, $struktur_id)
 
             $nilaiCount = 0;
 
-            $isNewFormat = isset($struktur->struktur['lingkup_materi']);
-
-            if ($isNewFormat) {
-                // FORMAT BARU: $nilaiData bisa berisi nested lm => [kolom=>nilai] atau flat keys untuk ASLIM/ASAS
-                foreach ($nilaiData as $key => $value) {
-                    if (is_array($value)) {
-                        // Nested LM
-                        $lmKey = $key;
-                        foreach ($value as $kolomKey => $nilaiValue) {
-                            if ($nilaiValue === null || $nilaiValue === '') {
-                                continue;
-                            }
-
-                            NilaiDetail::updateOrCreate(
-                                [
-                                    'siswa_id' => $item['siswa_id'],
-                                    'struktur_nilai_mapel_id' => $struktur_id,
-                                    'lm_key' => $lmKey,
-                                    'kolom_key' => $kolomKey,
-                                ],
-                                [
-                                    'mapel_id' => $struktur->mapel_id,
-                                    'semester_id' => $struktur->semester_id,
-                                    'tahun_ajaran_id' => $struktur->tahun_ajaran_id,
-                                    'nilai' => $nilaiValue,
-                                    'input_by_guru_id' => $guruId,
-                                ]
-                            );
-                            $nilaiCount++;
-                        }
-                    } else {
-                        // Flat (ASLIM/ASAS)
-                        if ($value === null || $value === '') {
+            // ✅ PROCESS NESTED STRUCTURE
+            foreach ($nilaiData as $key => $value) {
+                if (is_array($value)) {
+                    // Nested LM (lingkup_materi)
+                    $lmKey = $key;
+                    foreach ($value as $kolomKey => $nilaiValue) {
+                        if ($nilaiValue === null || $nilaiValue === '') {
                             continue;
                         }
 
@@ -197,75 +165,56 @@ public function storeBulk(Request $request, $kelas_id, $struktur_id)
                             [
                                 'siswa_id' => $item['siswa_id'],
                                 'struktur_nilai_mapel_id' => $struktur_id,
-                                'lm_key' => null,
-                                'kolom_key' => $key,
+                                'lm_key' => $lmKey,
+                                'kolom_key' => $kolomKey,
                             ],
                             [
                                 'mapel_id' => $struktur->mapel_id,
                                 'semester_id' => $struktur->semester_id,
                                 'tahun_ajaran_id' => $struktur->tahun_ajaran_id,
-                                'nilai' => $value,
+                                'nilai' => $nilaiValue,
                                 'input_by_guru_id' => $guruId,
                             ]
                         );
                         $nilaiCount++;
                     }
+                } else {
+                    // Flat (ASLIM/ASAS)
+                    if ($value === null || $value === '') {
+                        continue;
+                    }
+
+                    NilaiDetail::updateOrCreate(
+                        [
+                            'siswa_id' => $item['siswa_id'],
+                            'struktur_nilai_mapel_id' => $struktur_id,
+                            'lm_key' => null,
+                            'kolom_key' => $key,
+                        ],
+                        [
+                            'mapel_id' => $struktur->mapel_id,
+                            'semester_id' => $struktur->semester_id,
+                            'tahun_ajaran_id' => $struktur->tahun_ajaran_id,
+                            'nilai' => $value,
+                            'input_by_guru_id' => $guruId,
+                        ]
+                    );
+                    $nilaiCount++;
                 }
+            }
+
+            if ($nilaiCount > 0) {
+                $saved[] = [
+                    'siswa_id' => $item['siswa_id'],
+                    'siswa_nama' => $siswa->nama,
+                    'nilai_saved' => $nilaiCount
+                ];
             } else {
-    // FORMAT LAMA + dukung ASLIM/ASAS
-    foreach ($nilaiData as $lmKey => $kolomData) {
-
-        // 🔥 Jika ASLIM / ASAS (flat)
-        if (!is_array($kolomData)) {
-            if ($kolomData === null || $kolomData === '') continue;
-
-            NilaiDetail::updateOrCreate(
-                [
+                $skipped[] = [
                     'siswa_id' => $item['siswa_id'],
-                    'struktur_nilai_mapel_id' => $struktur_id,
-                    'lm_key' => null,
-                    'kolom_key' => $lmKey,
-                ],
-                [
-                    'mapel_id' => $struktur->mapel_id,
-                    'semester_id' => $struktur->semester_id,
-                    'tahun_ajaran_id' => $struktur->tahun_ajaran_id,
-                    'nilai' => $kolomData,
-                    'input_by_guru_id' => $guruId,
-                ]
-            );
-            continue;
-        }
-
-        // 🔥 Jika LM (format usual)
-        foreach ($kolomData as $kolomKey => $nilaiValue) {
-            if ($nilaiValue === null || $nilaiValue === '') continue;
-
-            NilaiDetail::updateOrCreate(
-                [
-                    'siswa_id' => $item['siswa_id'],
-                    'struktur_nilai_mapel_id' => $struktur_id,
-                    'lm_key' => $lmKey,
-                    'kolom_key' => $kolomKey,
-                ],
-                [
-                    'mapel_id' => $struktur->mapel_id,
-                    'semester_id' => $struktur->semester_id,
-                    'tahun_ajaran_id' => $struktur->tahun_ajaran_id,
-                    'nilai' => $nilaiValue,
-                    'input_by_guru_id' => $guruId,
-                ]
-            );
-        }
-    }
-}
-
-
-            $saved[] = [
-                'siswa_id' => $item['siswa_id'],
-                'siswa_nama' => $siswa->nama,
-                'nilai_saved' => $nilaiCount
-            ];
+                    'reason' => 'Tidak ada nilai valid yang dikirim'
+                ];
+            }
         }
 
         DB::commit();
@@ -287,8 +236,6 @@ public function storeBulk(Request $request, $kelas_id, $struktur_id)
         return response()->json(['message' => 'Error: ' . $e->getMessage()], 500);
     }
 }
-
-
 
         public function getProgress($kelas_id, $struktur_id)
     {

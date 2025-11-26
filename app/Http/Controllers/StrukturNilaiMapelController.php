@@ -8,6 +8,8 @@ use App\Models\TahunAjaran;
 use App\Models\Kelas;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Validator; // ✅ This import is crucial—add it if missing!
 
 class StrukturNilaiMapelController extends Controller
 {
@@ -36,12 +38,13 @@ class StrukturNilaiMapelController extends Controller
         return response()->json($struktur);
     }
 
-      public function store(Request $request, $kelas_id)
+    public function store(Request $request, $kelas_id)
     {
         $user = Auth::guard('api')->user();
         $guruId = $user->guru ? $user->guru->id : null;
 
-        $validated = $request->validate([
+        // Gunakan Validator untuk deep validation
+        $validator = Validator::make($request->all(), [
             'mapel_id' => 'required|integer|exists:mapel,id',
             'semester_id' => 'required|integer|exists:semester,id',
             'struktur' => 'required|array',
@@ -58,6 +61,14 @@ class StrukturNilaiMapelController extends Controller
             'struktur.asas.kolom_key' => 'required|string',
             'struktur.asas.kolom_label' => 'required|string',
         ]);
+
+        if ($validator->fails()) {
+            \Log::error('Store validation failed: ' . json_encode($validator->errors()));
+            return response()->json(['message' => $validator->errors()->first()], 422);
+        }
+
+        $validated = $validator->validated();
+        $strukturData = $validated['struktur'];
 
         $tahunId = TahunAjaran::where('is_active', true)->value('id');
         if (!$tahunId) {
@@ -130,15 +141,33 @@ class StrukturNilaiMapelController extends Controller
     {
         $struktur = StrukturNilaiMapel::where('kelas_id', $kelas_id)->findOrFail($id);
 
-        $validated = $request->validate([
+        // ✅ DEBUG: Lihat data yang diterima
+        \Log::info("📥 Data received for update:", $request->all());
+
+        // Gunakan Validator untuk deep validation
+        $validator = Validator::make($request->all(), [
             'struktur' => 'required|array',
-            'struktur.*.lm_key' => 'required|string',
-            'struktur.*.lm_label' => 'required|string',
-            'struktur.*.kolom' => 'required|array',
-            'struktur.*.kolom.*.kolom_key' => 'required|string',
-            'struktur.*.kolom.*.kolom_label' => 'required|string',
-            'struktur.*.kolom.*.tipe' => 'required|in:formatif,aslim,asas',
+            'struktur.lingkup_materi' => 'required|array|min:1',
+            'struktur.lingkup_materi.*.lm_key' => 'required|string',
+            'struktur.lingkup_materi.*.lm_label' => 'required|string',
+            'struktur.lingkup_materi.*.formatif' => 'required|array|min:1',
+            'struktur.lingkup_materi.*.formatif.*.kolom_key' => 'required|string',
+            'struktur.lingkup_materi.*.formatif.*.kolom_label' => 'required|string',
+            'struktur.aslim' => 'required|array',
+            'struktur.aslim.kolom_key' => 'required|string',
+            'struktur.aslim.kolom_label' => 'required|string',
+            'struktur.asas' => 'required|array',
+            'struktur.asas.kolom_key' => 'required|string',
+            'struktur.asas.kolom_label' => 'required|string',
         ]);
+
+        if ($validator->fails()) {
+            \Log::error('Update validation failed: ' . json_encode($validator->errors()));
+            return response()->json(['message' => $validator->errors()->first()], 422);
+        }
+
+        $validated = $validator->validated();
+        $strukturData = $validated['struktur'];
 
         $nilaiDetailCount = DB::table('nilai_detail')
             ->where('struktur_nilai_mapel_id', $struktur->id)
@@ -155,10 +184,13 @@ class StrukturNilaiMapelController extends Controller
             DB::beginTransaction();
 
             $struktur->update([
-                'struktur' => $validated['struktur'],
+                'struktur' => $strukturData, // ✅ Gunakan data yang sudah divalidasi
             ]);
 
             DB::commit();
+
+            \Log::info("✅ Struktur {$id} updated successfully");
+            \Log::info("📊 Updated struktur data:", $struktur->fresh()->struktur);
 
             return response()->json([
                 'message' => 'Struktur nilai berhasil diupdate',
@@ -166,6 +198,7 @@ class StrukturNilaiMapelController extends Controller
             ]);
         } catch (\Exception $e) {
             DB::rollBack();
+            \Log::error("❌ Error updating struktur {$id}: " . $e->getMessage());
             return response()->json(['message' => 'Error: ' . $e->getMessage()], 500);
         }
     }
