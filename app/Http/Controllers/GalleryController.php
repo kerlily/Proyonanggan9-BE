@@ -35,7 +35,12 @@ class GalleryController extends Controller
     public function store(Request $request)
     {
         $user = auth()->guard('api')->user();
-        if (! $user || ! in_array($user->role, ['admin','guru'])) {
+
+        if (!$user) {
+            $user = auth()->user();
+        }
+
+        if (!$user || !in_array($user->role, ['admin','guru'])) {
             return response()->json(['message' => 'Forbidden'], 403);
         }
 
@@ -59,20 +64,26 @@ class GalleryController extends Controller
         ], 201);
     }
 
-    // Update image (only uploader or admin) — replace file
+    // Update image (semua guru atau admin bisa update)
     public function update(Request $request, $id)
     {
         $user = auth()->guard('api')->user();
-        if (! $user || ! in_array($user->role, ['admin','guru'])) {
-            return response()->json(['message' => 'Forbidden'], 403);
+
+        if (!$user) {
+            $user = auth()->user();
+        }
+
+        // FIX: Izinkan semua admin ATAU guru update gallery
+        $isAdmin = $user && $user->role === 'admin';
+        $isGuru = $user && $user->role === 'guru';
+
+        if (!$isAdmin && !$isGuru) {
+            return response()->json([
+                'message' => 'Forbidden - Only admin or guru can update gallery'
+            ], 403);
         }
 
         $gallery = Gallery::findOrFail($id);
-
-        // allow admin OR uploader to update; if you want only admin remove this check
-        if ($user->role !== 'admin' && $gallery->created_by && $gallery->created_by !== $user->id) {
-            return response()->json(['message' => 'Forbidden'], 403);
-        }
 
         $request->validate([
             'image' => 'required|image|max:5120',
@@ -85,7 +96,6 @@ class GalleryController extends Controller
 
         $path = $request->file('image')->store('galleries', 'public');
         $gallery->image = $path;
-        // keep created_by unchanged
         $gallery->save();
 
         return response()->json([
@@ -97,19 +107,26 @@ class GalleryController extends Controller
         ]);
     }
 
-    // Delete (only uploader or admin)
+    // Delete (semua guru atau admin bisa delete)
     public function destroy($id)
     {
         $user = auth()->guard('api')->user();
-        if (! $user || ! in_array($user->role, ['admin','guru'])) {
-            return response()->json(['message' => 'Forbidden'], 403);
+
+        if (!$user) {
+            $user = auth()->user();
+        }
+
+        // FIX: Izinkan semua admin ATAU guru delete gallery
+        $isAdmin = $user && $user->role === 'admin';
+        $isGuru = $user && $user->role === 'guru';
+
+        if (!$isAdmin && !$isGuru) {
+            return response()->json([
+                'message' => 'Forbidden - Only admin or guru can delete gallery'
+            ], 403);
         }
 
         $gallery = Gallery::findOrFail($id);
-
-        if ($user->role !== 'admin' && $gallery->created_by && $gallery->created_by !== $user->id) {
-            return response()->json(['message' => 'Forbidden'], 403);
-        }
 
         if ($gallery->image && Storage::disk('public')->exists($gallery->image)) {
             Storage::disk('public')->delete($gallery->image);

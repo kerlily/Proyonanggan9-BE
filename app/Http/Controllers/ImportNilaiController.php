@@ -7,6 +7,8 @@ use Illuminate\Support\Facades\DB;
 use Exception;
 use App\Models\Guru;
 use App\Models\TahunAjaran;
+use App\Models\NilaiSikap;
+use App\Models\Ketidakhadiran;
 
 class ImportNilaiController extends Controller
 {
@@ -27,36 +29,30 @@ class ImportNilaiController extends Controller
 
         $dryRun = (bool)$request->input('dry_run', false);
 
-        // --- GET ACTIVE TAHUN AJARAN ---
         $activeTahunAjaran = TahunAjaran::where('is_active', true)->first();
         if (!$activeTahunAjaran) {
             return response()->json(['message' => 'Tidak ada tahun ajaran aktif'], 400);
         }
 
-        // --- Verify semester belongs to active tahun ajaran ---
         $semester = DB::table('semester')
             ->where('id', $semester_id)
-            ->where('tahun_ajaran_id', $activeTahunAjaran->is_active)
+            ->where('tahun_ajaran_id', $activeTahunAjaran->id)
             ->first();
 
         if (!$semester) {
             return response()->json(['message' => 'Semester tidak ditemukan atau tidak sesuai dengan tahun ajaran aktif'], 400);
         }
 
-        // --- DETERMINE uploaderGuruId (map user -> guru.id) ---
         $user = auth()->guard('api')->user() ?? auth()->user();
         $uploaderGuruId = null;
         if ($user) {
-            // 1) try find guru by user_id column
             $guru = Guru::where('user_id', $user->id)->first();
             if ($guru) {
                 $uploaderGuruId = $guru->id;
             } else {
-                // 2) maybe auth directly returns guru id (rare) => check guru.id == user.id
                 if (Guru::where('id', $user->id)->exists()) {
                     $uploaderGuruId = $user->id;
                 } else {
-                    // fallback: leave null (safer than inserting invalid FK)
                     $uploaderGuruId = null;
                 }
             }
@@ -78,7 +74,13 @@ class ImportNilaiController extends Controller
         $headers = $rows[1];
         $colForNama = null;
         $colForCatatan = null;
+        $colForIjin = null;
+        $colForSakit = null;
+        $colForAlpa = null;
+        $colForNilaiSikap = null;
+        $colForDeskripsiSikap = null;
         $mapelCols = [];
+
         foreach ($headers as $col => $text) {
             $t = trim((string)$text);
             $tLow = mb_strtolower($t, 'UTF-8');
@@ -86,6 +88,11 @@ class ImportNilaiController extends Controller
                 $colForNama = $col; continue;
             }
             if ($tLow === 'catatan') { $colForCatatan = $col; continue; }
+            if ($tLow === 'ijin') { $colForIjin = $col; continue; }
+            if ($tLow === 'sakit') { $colForSakit = $col; continue; }
+            if ($tLow === 'alpa') { $colForAlpa = $col; continue; }
+            if ($tLow === 'nilai sikap') { $colForNilaiSikap = $col; continue; }
+            if ($tLow === 'deskripsi sikap') { $colForDeskripsiSikap = $col; continue; }
             if (in_array($tLow, ['no','nomor','#'])) continue;
             if ($t !== '') $mapelCols[$col] = $t;
         }
@@ -93,30 +100,23 @@ class ImportNilaiController extends Controller
         if (!$colForNama) {
             return response()->json(['message' => "Header 'Nama Siswa' tidak ditemukan. Pastikan kolom header persis 'Nama Siswa'."], 400);
         }
-        if (empty($mapelCols)) {
-            return response()->json(['message' => "Tidak ada kolom mapel (mata pelajaran) ditemukan di header."], 400);
+
+        $kelas = \App\Models\Kelas::with('mapels')->findOrFail($kelas_id);
+
+        $siswaRows = DB::table('siswa')->where('kelas_id', $kelas_id)->get(['id','nama']);
+        $siswaByNorm = [];
+        foreach ($siswaRows as $s) {
+            $siswaByNorm[$this->normalize($s->nama)][] = ['id'=>$s->id, 'nama'=>$s->nama];
         }
 
-        // prefetch siswa and mapel (HANYA yang di-assign ke kelas ini)
-$kelas = \App\Models\Kelas::with('mapels')->findOrFail($kelas_id);
+        $mapelRows = $kelas->mapels;
 
-$siswaRows = DB::table('siswa')->where('kelas_id', $kelas_id)->get(['id','nama']);
-$siswaByNorm = [];
-foreach ($siswaRows as $s) {
-    $siswaByNorm[$this->normalize($s->nama)][] = ['id'=>$s->id, 'nama'=>$s->nama];
-}
+        if ($mapelRows->isEmpty()) {
+            return response()->json([
+                'message' => "Kelas {$kelas->nama} belum memiliki mapel yang di-assign. Silakan assign mapel terlebih dahulu."
+            ], 422);
+        }
 
-// ✅ BENAR: hanya mapel yang di-assign ke kelas ini
-$mapelRows = $kelas->mapels;
-
-// Validasi: cek apakah kelas punya mapel
-if ($mapelRows->isEmpty()) {
-    return response()->json([
-        'message' => "Kelas {$kelas->nama} belum memiliki mapel yang di-assign. Silakan assign mapel terlebih dahulu."
-    ], 422);
-}
-
-        // prefetch mapel
         $mapelByNorm = [];
         foreach ($mapelRows as $m) $mapelByNorm[$this->normalize($m->nama)] = ['id'=>$m->id, 'nama'=>$m->nama];
 
@@ -125,7 +125,6 @@ if ($mapelRows->isEmpty()) {
             $norm = $this->normalize($mapelName);
             if (isset($mapelByNorm[$norm])) $mapelColToId[$col] = $mapelByNorm[$norm]['id'];
             else {
-                // try substring fallback
                 $found = null;
                 foreach ($mapelByNorm as $k => $mRow) {
                     if (strpos($k, $norm) !== false || strpos($norm, $k) !== false) { $found = $mRow; break; }
@@ -138,7 +137,6 @@ if ($mapelRows->isEmpty()) {
         $maxRow = max(array_keys($rows));
         $success = []; $failed = [];
 
-        // process rows
         for ($r = 2; $r <= $maxRow; $r++) {
             if (!isset($rows[$r])) continue;
             $row = $rows[$r];
@@ -147,7 +145,7 @@ if ($mapelRows->isEmpty()) {
             $normNama = $this->normalize($rawNama);
 
             if (!isset($siswaByNorm[$normNama])) {
-                $failed[] = ['row'=>$r, 'nama'=>$rawNama, 'reason'=>'Siswa tidak ditemukan pada kelas ini (cocokkan sheet Daftar Siswa)'];
+                $failed[] = ['row'=>$r, 'nama'=>$rawNama, 'reason'=>'Siswa tidak ditemukan pada kelas ini'];
                 continue;
             }
             if (count($siswaByNorm[$normNama]) > 1) {
@@ -156,7 +154,6 @@ if ($mapelRows->isEmpty()) {
             }
             $siswa = $siswaByNorm[$normNama][0];
 
-            // catatan default '-'
             $rawCatatan = trim((string)($row[$colForCatatan] ?? ''));
             $catatan = $rawCatatan === '' ? '-' : $rawCatatan;
 
@@ -165,7 +162,7 @@ if ($mapelRows->isEmpty()) {
                 if ($val === null || $val === '') continue;
 
                 if (!isset($mapelColToId[$col])) {
-                    $failed[] = ['row'=>$r,'nama'=>$rawNama,'mapel'=>$mapelHeader,'reason'=>'Header mapel tidak cocok dengan tabel mapel'];
+                    $failed[] = ['row'=>$r,'nama'=>$rawNama,'mapel'=>$mapelHeader,'reason'=>'Header mapel tidak cocok'];
                     continue;
                 }
                 $mapel_id = $mapelColToId[$col];
@@ -175,20 +172,17 @@ if ($mapelRows->isEmpty()) {
                     continue;
                 }
 
-                // cast nilai ke integer (sesuaikan jika butuh decimal)
                 $nilaiNumeric = (int) round((float) $val);
 
-                // FIXED: Include tahun_ajaran_id in unique constraint
                 $entry = [
                     'siswa_id' => $siswa['id'],
                     'mapel_id' => $mapel_id,
                     'semester_id' => $semester_id,
-                    'tahun_ajaran_id' => $activeTahunAjaran->id, // ADD THIS
+                    'tahun_ajaran_id' => $activeTahunAjaran->id,
                 ];
                 $data = [
                     'nilai' => $nilaiNumeric,
                     'catatan' => $catatan,
-                    // use mapped guru id (may be null) to avoid FK error
                     'input_by_guru_id' => $uploaderGuruId,
                     'updated_at' => now(),
                     'created_at' => now(),
@@ -204,7 +198,6 @@ if ($mapelRows->isEmpty()) {
                         'tahun_ajaran_id'=>$activeTahunAjaran->id
                     ];
                 } else {
-                    // wrap each operation to catch DB exceptions per entry
                     try {
                         DB::table('nilai')->updateOrInsert($entry, $data);
                         $success[] = [
@@ -223,6 +216,76 @@ if ($mapelRows->isEmpty()) {
                             'reason' => 'DB error: '.$e->getMessage()
                         ];
                     }
+                }
+            }
+
+            if ($colForIjin || $colForSakit || $colForAlpa) {
+                $ijin = $colForIjin ? (int)($row[$colForIjin] ?? 0) : 0;
+                $sakit = $colForSakit ? (int)($row[$colForSakit] ?? 0) : 0;
+                $alpa = $colForAlpa ? (int)($row[$colForAlpa] ?? 0) : 0;
+
+                if ($ijin > 0 || $sakit > 0 || $alpa > 0) {
+                    if (!$dryRun) {
+                        try {
+                            Ketidakhadiran::updateOrCreate(
+                                [
+                                    'siswa_id' => $siswa['id'],
+                                    'semester_id' => $semester_id,
+                                    'tahun_ajaran_id' => $activeTahunAjaran->id,
+                                ],
+                                [
+                                    'ijin' => $ijin,
+                                    'sakit' => $sakit,
+                                    'alpa' => $alpa,
+                                    'input_by_guru_id' => $uploaderGuruId,
+                                    'updated_at' => now(),
+                                ]
+                            );
+                        } catch (Exception $e) {
+                            $failed[] = [
+                                'row'=>$r,
+                                'nama'=>$rawNama,
+                                'reason' => 'Ketidakhadiran DB error: '.$e->getMessage()
+                            ];
+                        }
+                    }
+                }
+            }
+
+            if ($colForNilaiSikap) {
+                $nilaiSikap = strtoupper(trim((string)($row[$colForNilaiSikap] ?? '')));
+                $deskripsiSikap = $colForDeskripsiSikap ? trim((string)($row[$colForDeskripsiSikap] ?? '')) : null;
+
+                if (in_array($nilaiSikap, ['A', 'B', 'C', 'D', 'E'])) {
+                    if (!$dryRun) {
+                        try {
+                            NilaiSikap::updateOrCreate(
+                                [
+                                    'siswa_id' => $siswa['id'],
+                                    'semester_id' => $semester_id,
+                                    'tahun_ajaran_id' => $activeTahunAjaran->id,
+                                ],
+                                [
+                                    'nilai' => $nilaiSikap,
+                                    'deskripsi' => $deskripsiSikap,
+                                    'input_by_guru_id' => $uploaderGuruId,
+                                    'updated_at' => now(),
+                                ]
+                            );
+                        } catch (Exception $e) {
+                            $failed[] = [
+                                'row'=>$r,
+                                'nama'=>$rawNama,
+                                'reason' => 'Nilai Sikap DB error: '.$e->getMessage()
+                            ];
+                        }
+                    }
+                } elseif ($nilaiSikap !== '') {
+                    $failed[] = [
+                        'row'=>$r,
+                        'nama'=>$rawNama,
+                        'reason' => 'Nilai sikap harus A, B, C, D, atau E. Ditemukan: '.$nilaiSikap
+                    ];
                 }
             }
         }

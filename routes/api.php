@@ -75,6 +75,8 @@ Route::middleware(['auth:api'])->group(function () {
     Route::post('/me/password', [ProfileController::class, 'changeUserPassword']); // ganti password
     Route::get('wali-kelas/me', [WaliKelasController::class, 'showByGuru']);
 
+     Route::get('/beritas/all', [BeritaController::class, 'all']);
+
 });
 
 /**
@@ -271,15 +273,6 @@ Route::middleware(['auth:api', 'wali.kelas'])->group(function () {
     Route::get('kelas/{kelas_id}/mapel', [KelasMapelController::class, 'index']);
 
 
-Route::middleware(['auth:api', 'role:admin,guru'])->group(function () {
-    Route::post('/beritas', [BeritaController::class, 'store']);
-    Route::post('/beritas/{id}', [BeritaController::class, 'update']);
-    Route::delete('/beritas/{id}', [BeritaController::class, 'destroy']);
-    Route::post('/galleries', [GalleryController::class, 'store']);
-    Route::post('/galleries/{id}', [GalleryController::class, 'update']); // or use PUT/PATCH
-    Route::delete('/galleries/{id}', [GalleryController::class, 'destroy']);
-
-});
 
 /**
  * -------------------------
@@ -303,6 +296,7 @@ Route::middleware(['auth:siswa'])->group(function () {
  * -------------------------
  */
 Route::prefix('admin')->middleware(['auth:api', 'role:admin,guru'])->group(function () {
+
     Route::get('/siswa/{siswa_id}/nilai', [AdminSiswaNilaiController::class, 'index']);
     Route::get('/siswa/{siswa_id}/nilai/semester/{semester_id}', [AdminSiswaNilaiController::class, 'bySemester']);
     Route::get('/siswa/{siswa_id}/nilai/{nilai_id}', [AdminSiswaNilaiController::class, 'show']);
@@ -377,6 +371,14 @@ Route::prefix('admin')->middleware(['auth:api', 'is_admin'])->group(function () 
 });
 
 Route::middleware(['auth:api', 'is_admin_or_guru'])->group(function () {
+    Route::post('/beritas', [BeritaController::class, 'store']);
+    Route::post('/beritas/{id}', [BeritaController::class, 'update']);
+    Route::put('/beritas/{id}', [BeritaController::class, 'update']);
+    Route::delete('/beritas/{id}', [BeritaController::class, 'destroy']);
+    Route::post('/galleries', [GalleryController::class, 'store']);
+    Route::put('/galleries/{id}', [GalleryController::class, 'update']);
+    Route::delete('/galleries/{id}', [GalleryController::class, 'destroy']);
+
     Route::prefix('kelas/{kelas_id}')->group(function () {
 
         Route::get('struktur-nilai', [StrukturNilaiMapelController::class, 'index']);
@@ -387,6 +389,7 @@ Route::middleware(['auth:api', 'is_admin_or_guru'])->group(function () {
         Route::get('struktur-nilai/mapel/{mapel_id}/semester/{semester_id}', [StrukturNilaiMapelController::class, 'getByMapel']);
 
         Route::get('semester/{semester_id}/available-mapels', [StrukturNilaiMapelController::class, 'getAvailableMapels']);
+        Route::get('struktur-nilai/{id}/nilai-count', [StrukturNilaiMapelController::class, 'getNilaiCount']);
 
         Route::post('struktur-nilai/{struktur_id}/nilai-detail/single', [NilaiDetailController::class, 'storeSingle']);
         Route::post('struktur-nilai/{struktur_id}/nilai-detail/bulk', [NilaiDetailController::class, 'storeBulk']);
@@ -397,4 +400,5 @@ Route::middleware(['auth:api', 'is_admin_or_guru'])->group(function () {
     });
 
      Route::get('kelas/{kelas_id}/mapel', [KelasMapelController::class, 'index']);
+
 });

@@ -9,18 +9,25 @@ use App\Models\Kelas;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Validator; // ✅ This import is crucial—add it if missing!
+use Illuminate\Support\Facades\Validator;
 
 class StrukturNilaiMapelController extends Controller
 {
     public function index(Request $request, $kelas_id)
-    {
-        $semesterId = $request->query('semester_id');
-        $tahunId = TahunAjaran::where('is_active', true)->value('id');
+{
+    $semesterId = $request->query('semester_id');
 
-        $query = StrukturNilaiMapel::with(['mapel', 'semester', 'tahunAjaran', 'createdByGuru'])
-            ->where('kelas_id', $kelas_id)
-            ->where('tahun_ajaran_id', $tahunId);
+    // ✅ PERUBAHAN: Support filter tahun ajaran dari query parameter
+    $tahunId = $request->query('tahun_ajaran_id');
+
+    // Kalau tidak ada filter, default ke tahun aktif
+    if (!$tahunId) {
+        $tahunId = TahunAjaran::where('is_active', true)->value('id');
+    }
+
+    $query = StrukturNilaiMapel::with(['mapel', 'semester', 'tahunAjaran', 'createdByGuru'])
+        ->where('kelas_id', $kelas_id)
+        ->where('tahun_ajaran_id', $tahunId);
 
         if ($semesterId) {
             $query->where('semester_id', $semesterId);
@@ -204,31 +211,40 @@ class StrukturNilaiMapelController extends Controller
     }
 
     public function destroy($kelas_id, $id)
-    {
-        $struktur = StrukturNilaiMapel::where('kelas_id', $kelas_id)->findOrFail($id);
+{
+    $struktur = StrukturNilaiMapel::where('kelas_id', $kelas_id)->findOrFail($id);
 
-        $nilaiDetailCount = DB::table('nilai_detail')
-            ->where('struktur_nilai_mapel_id', $struktur->id)
-            ->count();
+    // ✅ PERUBAHAN: Hitung jumlah nilai untuk logging, TAPI tidak block delete
+    $nilaiDetailCount = DB::table('nilai_detail')
+        ->where('struktur_nilai_mapel_id', $struktur->id)
+        ->count();
 
-        if ($nilaiDetailCount > 0) {
-            return response()->json([
-                'message' => 'Tidak bisa menghapus struktur karena sudah ada nilai yang terinput',
-                'nilai_count' => $nilaiDetailCount
-            ], 422);
-        }
+    try {
+        DB::beginTransaction();
 
-        try {
-            DB::beginTransaction();
-            $struktur->delete();
-            DB::commit();
+        // Log untuk audit
+        \Log::info("Deleting struktur {$id} with {$nilaiDetailCount} nilai details", [
+            'struktur_id' => $id,
+            'kelas_id' => $kelas_id,
+            'mapel_id' => $struktur->mapel_id,
+            'nilai_count' => $nilaiDetailCount,
+            'deleted_by' => Auth::guard('api')->user()->id ?? 'unknown'
+        ]);
 
-            return response()->json(['message' => 'Struktur nilai berhasil dihapus']);
-        } catch (\Exception $e) {
-            DB::rollBack();
-            return response()->json(['message' => 'Error: ' . $e->getMessage()], 500);
-        }
+        $struktur->delete(); // Cascade akan auto-delete nilai_detail
+
+        DB::commit();
+
+        return response()->json([
+            'message' => 'Struktur nilai berhasil dihapus',
+            'deleted_nilai_count' => $nilaiDetailCount
+        ]);
+    } catch (\Exception $e) {
+        DB::rollBack();
+        \Log::error("Error deleting struktur {$id}: " . $e->getMessage());
+        return response()->json(['message' => 'Error: ' . $e->getMessage()], 500);
     }
+}
 
     public function getByMapel($kelas_id, $mapel_id, $semester_id)
     {
@@ -265,9 +281,14 @@ class StrukturNilaiMapelController extends Controller
     /**
      * ✅ NEW: Get daftar mapel yang bisa dibuat strukturnya
      */
-    public function getAvailableMapels($kelas_id, $semester_id)
-    {
+   public function getAvailableMapels($kelas_id, $semester_id)
+{
+    // ✅ PERUBAHAN: Support filter tahun dari query parameter
+    $tahunId = request()->query('tahun_ajaran_id');
+
+    if (!$tahunId) {
         $tahunId = TahunAjaran::where('is_active', true)->value('id');
+    }
 
         $kelas = Kelas::with('mapels')->findOrFail($kelas_id);
 
@@ -293,4 +314,29 @@ class StrukturNilaiMapelController extends Controller
             'total' => $availableMapels->count()
         ]);
     }
+
+    /**
+ * Get count nilai detail untuk warning sebelum delete
+ */
+public function getNilaiCount($kelas_id, $id)
+{
+    $struktur = StrukturNilaiMapel::where('kelas_id', $kelas_id)->findOrFail($id);
+
+    $nilaiDetailCount = DB::table('nilai_detail')
+        ->where('struktur_nilai_mapel_id', $struktur->id)
+        ->count();
+
+    // Hitung berapa siswa yang sudah punya nilai
+    $siswaWithNilai = DB::table('nilai_detail')
+        ->where('struktur_nilai_mapel_id', $struktur->id)
+        ->distinct('siswa_id')
+        ->count();
+
+    return response()->json([
+        'struktur_id' => $id,
+        'total_nilai_detail' => $nilaiDetailCount,
+        'total_siswa_with_nilai' => $siswaWithNilai,
+        'has_nilai' => $nilaiDetailCount > 0
+    ]);
+}
 }
