@@ -3,141 +3,365 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
-use App\Models\Jadwal;
+use App\Models\JadwalTemplate;
+use App\Models\JadwalSlot;
 use App\Models\Kelas;
-use Illuminate\Support\Facades\Storage;
+use App\Models\TahunAjaran;
+use App\Models\Semester;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Log;
 
 class JadwalController extends Controller
 {
-    // list jadwal for a kelas (public)
-public function index($kelas_id)
-{
-    // if API user (guru/admin) allow
-    if (Auth::guard('api')->check()) {
-        $user = Auth::guard('api')->user();
-        if ($user && in_array($user->role, ['admin','guru'])) {
-            $jadwals = Jadwal::where('kelas_id', $kelas_id)->orderByDesc('created_at')->get();
-            return response()->json($jadwals);
+    /**
+     * Get jadwal untuk kelas (public view)
+     * GET /api/kelas/{kelas_id}/jadwal?semester_id=1&tahun_ajaran_id=1
+     *
+     * Jika tidak ada query params, ambil semester & tahun ajaran yang aktif
+     */
+    public function index(Request $request, $kelas_id)
+    {
+        try {
+            // Check authorization
+            if (!$this->canViewJadwal($kelas_id)) {
+                return response()->json(['message' => 'Unauthorized'], 401);
+            }
+
+            // Get semester & tahun ajaran (default: yang aktif)
+            $semesterId = $request->query('semester_id');
+            $tahunAjaranId = $request->query('tahun_ajaran_id');
+
+            if (!$semesterId || !$tahunAjaranId) {
+                $tahunAktif = TahunAjaran::where('is_active', true)->first();
+                if (!$tahunAktif) {
+                    return response()->json([
+                        'message' => 'Tidak ada tahun ajaran aktif',
+                        'data' => null
+                    ], 404);
+                }
+
+                $semesterAktif = Semester::where('tahun_ajaran_id', $tahunAktif->id)
+                    ->where('is_active', true)
+                    ->first();
+
+                $tahunAjaranId = $tahunAktif->id;
+                $semesterId = $semesterAktif ? $semesterAktif->id : null;
+            }
+
+            if (!$semesterId) {
+                return response()->json([
+                    'message' => 'Tidak ada semester aktif',
+                    'data' => null
+                ], 404);
+            }
+
+            // Get jadwal template
+            $jadwal = JadwalTemplate::with(['slots.mapel', 'kelas', 'semester', 'tahunAjaran'])
+                ->where('kelas_id', $kelas_id)
+                ->where('semester_id', $semesterId)
+                ->where('tahun_ajaran_id', $tahunAjaranId)
+                ->first();
+
+            if (!$jadwal) {
+                return response()->json([
+                    'message' => 'Jadwal belum dibuat untuk kelas ini',
+                    'data' => null
+                ], 404);
+            }
+
+            // Group slots by hari
+            $slotsByHari = $jadwal->slots->groupBy('hari');
+
+            return response()->json([
+                'message' => 'Success',
+                'jadwal' => [
+                    'id' => $jadwal->id,
+                    'nama' => $jadwal->nama,
+                    'kelas' => [
+                        'id' => $jadwal->kelas->id,
+                        'nama' => $jadwal->kelas->nama,
+                    ],
+                    'semester' => [
+                        'id' => $jadwal->semester->id,
+                        'nama' => $jadwal->semester->nama,
+                    ],
+                    'tahun_ajaran' => [
+                        'id' => $jadwal->tahunAjaran->id,
+                        'nama' => $jadwal->tahunAjaran->nama,
+                    ],
+                    'is_active' => $jadwal->is_active,
+                ],
+                'slots_by_hari' => $slotsByHari,
+                'all_slots' => $jadwal->slots,
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Error getting jadwal: ' . $e->getMessage());
+            return response()->json([
+                'message' => 'Error: ' . $e->getMessage()
+            ], 500);
         }
     }
 
-    // if siswa guard
-    if (Auth::guard('siswa')->check()) {
-        $siswa = Auth::guard('siswa')->user();
-        if ((int)$siswa->kelas_id !== (int)$kelas_id) {
-            return response()->json(['message' => 'Forbidden: not your class'], 403);
-        }
-        $jadwals = Jadwal::where('kelas_id', $kelas_id)->orderByDesc('created_at')->get();
-        return response()->json($jadwals);
-    }
-
-    return response()->json(['message' => 'Unauthorized: please login'], 401);
-}
-
-
-
-    // show single jadwal
-    // show
-public function show($kelas_id, $id)
-{
-    // same checks as above
-    if (Auth::guard('api')->check()) {
-        $user = Auth::guard('api')->user();
-        if ($user && in_array($user->role, ['admin','guru'])) {
-            $jadwal = Jadwal::where('kelas_id', $kelas_id)->findOrFail($id);
-            return response()->json($jadwal);
-        }
-    }
-
-    if (Auth::guard('siswa')->check()) {
-        $siswa = Auth::guard('siswa')->user();
-        if ((int)$siswa->kelas_id !== (int)$kelas_id) {
-            return response()->json(['message' => 'Forbidden: not your class'], 403);
-        }
-        $jadwal = Jadwal::where('kelas_id', $kelas_id)->findOrFail($id);
-        return response()->json($jadwal);
-    }
-
-    return response()->json(['message' => 'Unauthorized: please login'], 401);
-}
-
-
-    // create jadwal (ONLY wali.kelas middleware should allow)
+    /**
+     * Create atau replace jadwal template untuk kelas
+     * POST /api/kelas/{kelas_id}/jadwal
+     *
+     * Body: {
+     *   "semester_id": 1,
+     *   "tahun_ajaran_id": 1,
+     *   "nama": "Jadwal Semester Ganjil 2024/2025",
+     *   "slots": [
+     *     {
+     *       "hari": "senin",
+     *       "jam_mulai": "07:00",
+     *       "jam_selesai": "07:45",
+     *       "tipe_slot": "pelajaran",
+     *       "mapel_id": 1,
+     *       "urutan": 1
+     *     },
+     *     {
+     *       "hari": "senin",
+     *       "jam_mulai": "07:45",
+     *       "jam_selesai": "08:30",
+     *       "tipe_slot": "istirahat",
+     *       "keterangan": "Istirahat",
+     *       "urutan": 2
+     *     }
+     *   ]
+     * }
+     */
     public function store(Request $request, $kelas_id)
     {
-        $request->validate([
-            'image' => 'required|image|max:5120', // max 5MB
-            'title' => 'nullable|string|max:255',
-            'description' => 'nullable|string',
-            'semester_id' => 'nullable|integer|exists:semester,id',
+        $validated = $request->validate([
+            'semester_id' => 'nullable|exists:semester,id',
+            'tahun_ajaran_id' => 'nullable|exists:tahun_ajaran,id',
+            'nama' => 'nullable|string|max:255',
+            'slots' => 'required|array|min:1',
+            'slots.*.hari' => 'required|in:senin,selasa,rabu,kamis,jumat,sabtu',
+            'slots.*.jam_mulai' => 'required|date_format:H:i',
+            'slots.*.jam_selesai' => 'required|date_format:H:i|after:slots.*.jam_mulai',
+            'slots.*.tipe_slot' => 'required|in:pelajaran,istirahat',
+            'slots.*.mapel_id' => 'required_if:slots.*.tipe_slot,pelajaran|nullable|exists:mapel,id',
+            'slots.*.keterangan' => 'required_if:slots.*.tipe_slot,istirahat|nullable|string|max:255',
+            'slots.*.urutan' => 'required|integer|min:1',
         ]);
 
-        // ensure kelas exists
+        // Ensure kelas exists
         Kelas::findOrFail($kelas_id);
 
-        // store file
-        $path = $request->file('image')->store('jadwals', 'public');
+        // Get semester & tahun ajaran (default: yang aktif)
+        $semesterId = $validated['semester_id'] ?? null;
+        $tahunAjaranId = $validated['tahun_ajaran_id'] ?? null;
 
-        $jadwal = Jadwal::create([
-            'kelas_id' => $kelas_id,
-            'guru_id' => auth()->guard('api')->user()->guru->id ?? null,
-            'semester_id' => $request->input('semester_id'),
-            'image' => $path,
-            'title' => $request->input('title'),
-            'description' => $request->input('description'),
-            'is_active' => true,
-        ]);
+        if (!$semesterId || !$tahunAjaranId) {
+            $tahunAktif = TahunAjaran::where('is_active', true)->first();
+            if (!$tahunAktif) {
+                return response()->json([
+                    'message' => 'Tidak ada tahun ajaran aktif dan tidak ada tahun_ajaran_id/semester_id yang diberikan'
+                ], 422);
+            }
 
-        return response()->json(['message' => 'Jadwal created', 'data' => $jadwal], 201);
+            $semesterAktif = Semester::where('tahun_ajaran_id', $tahunAktif->id)
+                ->where('is_active', true)
+                ->first();
+
+            $tahunAjaranId = $tahunAktif->id;
+            $semesterId = $semesterAktif ? $semesterAktif->id : null;
+        }
+
+        if (!$semesterId) {
+            return response()->json([
+                'message' => 'Tidak ada semester aktif'
+            ], 422);
+        }
+
+        try {
+            DB::beginTransaction();
+
+            // Check if jadwal already exists for this kelas+semester+tahun
+            $existingJadwal = JadwalTemplate::where('kelas_id', $kelas_id)
+                ->where('semester_id', $semesterId)
+                ->where('tahun_ajaran_id', $tahunAjaranId)
+                ->first();
+
+            if ($existingJadwal) {
+                // Delete existing jadwal & slots
+                $existingJadwal->slots()->delete();
+                $existingJadwal->delete();
+            }
+
+            // Create new jadwal template
+            $jadwal = JadwalTemplate::create([
+                'kelas_id' => $kelas_id,
+                'semester_id' => $semesterId,
+                'tahun_ajaran_id' => $tahunAjaranId,
+                'nama' => $validated['nama'] ?? null,
+                'is_active' => true,
+            ]);
+
+            // Create slots
+            foreach ($validated['slots'] as $slotData) {
+                JadwalSlot::create([
+                    'jadwal_template_id' => $jadwal->id,
+                    'hari' => $slotData['hari'],
+                    'jam_mulai' => $slotData['jam_mulai'],
+                    'jam_selesai' => $slotData['jam_selesai'],
+                    'tipe_slot' => $slotData['tipe_slot'],
+                    'mapel_id' => $slotData['tipe_slot'] === 'pelajaran' ? $slotData['mapel_id'] : null,
+                    'keterangan' => $slotData['tipe_slot'] === 'istirahat' ? $slotData['keterangan'] : null,
+                    'urutan' => $slotData['urutan'],
+                ]);
+            }
+
+            DB::commit();
+
+            Log::info('Jadwal created/updated', [
+                'kelas_id' => $kelas_id,
+                'jadwal_id' => $jadwal->id,
+                'total_slots' => count($validated['slots']),
+            ]);
+
+            return response()->json([
+                'message' => 'Jadwal berhasil dibuat/diupdate',
+                'jadwal' => $jadwal->load(['slots.mapel', 'kelas', 'semester', 'tahunAjaran'])
+            ], 201);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('Error creating jadwal: ' . $e->getMessage());
+            return response()->json([
+                'message' => 'Error: ' . $e->getMessage()
+            ], 500);
+        }
     }
 
-    // update jadwal (only wali)
+    /**
+     * Update jadwal (replace all slots)
+     * PUT /api/kelas/{kelas_id}/jadwal/{id}
+     */
     public function update(Request $request, $kelas_id, $id)
     {
-        $jadwal = Jadwal::where('kelas_id', $kelas_id)->findOrFail($id);
+        $jadwal = JadwalTemplate::where('kelas_id', $kelas_id)->findOrFail($id);
 
-        $request->validate([
-            'image' => 'nullable|image|max:5120',
-            'title' => 'nullable|string|max:255',
-            'description' => 'nullable|string',
-            'semester_id' => 'nullable|integer|exists:semester,id',
+        $validated = $request->validate([
+            'nama' => 'nullable|string|max:255',
             'is_active' => 'nullable|boolean',
+            'slots' => 'required|array|min:1',
+            'slots.*.hari' => 'required|in:senin,selasa,rabu,kamis,jumat,sabtu',
+            'slots.*.jam_mulai' => 'required|date_format:H:i',
+            'slots.*.jam_selesai' => 'required|date_format:H:i|after:slots.*.jam_mulai',
+            'slots.*.tipe_slot' => 'required|in:pelajaran,istirahat',
+            'slots.*.mapel_id' => 'required_if:slots.*.tipe_slot,pelajaran|nullable|exists:mapel,id',
+            'slots.*.keterangan' => 'required_if:slots.*.tipe_slot,istirahat|nullable|string|max:255',
+            'slots.*.urutan' => 'required|integer|min:1',
         ]);
 
-        // if new image uploaded, delete old
-        if ($request->hasFile('image')) {
-            if ($jadwal->image && Storage::disk('public')->exists($jadwal->image)) {
-                Storage::disk('public')->delete($jadwal->image);
+        try {
+            DB::beginTransaction();
+
+            // Update jadwal template
+            $jadwal->nama = $validated['nama'] ?? $jadwal->nama;
+            if (isset($validated['is_active'])) {
+                $jadwal->is_active = $validated['is_active'];
             }
-            $path = $request->file('image')->store('jadwals', 'public');
-            $jadwal->image = $path;
-        }
+            $jadwal->save();
 
-        $jadwal->title = $request->input('title', $jadwal->title);
-        $jadwal->description = $request->input('description', $jadwal->description);
-        $jadwal->semester_id = $request->input('semester_id', $jadwal->semester_id);
-        if (!is_null($request->input('is_active'))) {
-            $jadwal->is_active = (bool)$request->input('is_active');
-        }
-        $jadwal->save();
+            // Delete old slots
+            $jadwal->slots()->delete();
 
-        return response()->json(['message' => 'Jadwal updated', 'data' => $jadwal]);
+            // Create new slots
+            foreach ($validated['slots'] as $slotData) {
+                JadwalSlot::create([
+                    'jadwal_template_id' => $jadwal->id,
+                    'hari' => $slotData['hari'],
+                    'jam_mulai' => $slotData['jam_mulai'],
+                    'jam_selesai' => $slotData['jam_selesai'],
+                    'tipe_slot' => $slotData['tipe_slot'],
+                    'mapel_id' => $slotData['tipe_slot'] === 'pelajaran' ? $slotData['mapel_id'] : null,
+                    'keterangan' => $slotData['tipe_slot'] === 'istirahat' ? $slotData['keterangan'] : null,
+                    'urutan' => $slotData['urutan'],
+                ]);
+            }
+
+            DB::commit();
+
+            Log::info('Jadwal updated', [
+                'kelas_id' => $kelas_id,
+                'jadwal_id' => $jadwal->id,
+                'total_slots' => count($validated['slots']),
+            ]);
+
+            return response()->json([
+                'message' => 'Jadwal berhasil diupdate',
+                'jadwal' => $jadwal->load(['slots.mapel', 'kelas', 'semester', 'tahunAjaran'])
+            ]);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('Error updating jadwal: ' . $e->getMessage());
+            return response()->json([
+                'message' => 'Error: ' . $e->getMessage()
+            ], 500);
+        }
     }
 
-    // delete jadwal (only wali)
+    /**
+     * Delete jadwal
+     * DELETE /api/kelas/{kelas_id}/jadwal/{id}
+     */
     public function destroy($kelas_id, $id)
     {
-        $jadwal = Jadwal::where('kelas_id', $kelas_id)->findOrFail($id);
+        $jadwal = JadwalTemplate::where('kelas_id', $kelas_id)->findOrFail($id);
 
-        // delete file
-        if ($jadwal->image && Storage::disk('public')->exists($jadwal->image)) {
-            Storage::disk('public')->delete($jadwal->image);
+        try {
+            DB::beginTransaction();
+
+            // Slots akan terhapus otomatis karena cascadeOnDelete
+            $jadwal->delete();
+
+            DB::commit();
+
+            Log::info('Jadwal deleted', [
+                'kelas_id' => $kelas_id,
+                'jadwal_id' => $id,
+            ]);
+
+            return response()->json([
+                'message' => 'Jadwal berhasil dihapus'
+            ]);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('Error deleting jadwal: ' . $e->getMessage());
+            return response()->json([
+                'message' => 'Error: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Helper: Check if user can view jadwal
+     */
+    private function canViewJadwal($kelas_id)
+    {
+        // Admin/Guru API
+        if (Auth::guard('api')->check()) {
+            $user = Auth::guard('api')->user();
+            if ($user && in_array($user->role, ['admin', 'guru'])) {
+                return true;
+            }
         }
 
-        $jadwal->delete();
+        // Siswa
+        if (Auth::guard('siswa')->check()) {
+            $siswa = Auth::guard('siswa')->user();
+            if ((int)$siswa->kelas_id === (int)$kelas_id) {
+                return true;
+            }
+        }
 
-        return response()->json(['message' => 'Jadwal deleted']);
+        return false;
     }
 }

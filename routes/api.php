@@ -214,8 +214,8 @@ Route::prefix('admin')->middleware(['auth:api', 'is_admin'])->group(function () 
     // Get all activity logs dengan filter
     Route::get('/activity-logs', [ActivityLogController::class, 'index']);
 
-        // Get statistics
-        Route::get('/activity-logs/stats', [ActivityLogController::class, 'stats']);
+    // Get statistics
+    Route::get('/activity-logs/stats', [ActivityLogController::class, 'stats']);
 
     // Get detail activity log
     Route::get('/activity-logs/{id}', [ActivityLogController::class, 'show']);
@@ -233,15 +233,15 @@ Route::prefix('admin')->middleware(['auth:api', 'is_admin'])->group(function () 
  */
 // Public access to view jadwals
 Route::middleware(['can.view.jadwal'])->group(function () {
-    Route::get('/kelas/{kelas_id}/jadwals', [JadwalController::class, 'index']);
-    Route::get('/kelas/{kelas_id}/jadwals/{id}', [JadwalController::class, 'show']);
+   Route::get('/kelas/{kelas_id}/jadwal', [JadwalController::class, 'index']);
 });
 
 // Protected CRUD (file upload supported on store & update)
 Route::middleware(['auth:api', 'wali.kelas'])->group(function () {
-    Route::post('/kelas/{kelas_id}/jadwals', [JadwalController::class, 'store']);          // Create (file upload)
-    Route::post('/kelas/{kelas_id}/jadwals/{id}', [JadwalController::class, 'update']);    // Update (file upload supported)
-    Route::delete('/kelas/{kelas_id}/jadwals/{id}', [JadwalController::class, 'destroy']); // Delete
+     Route::post('/kelas/{kelas_id}/jadwal', [JadwalController::class, 'store']);
+    Route::put('/kelas/{kelas_id}/jadwal/{id}', [JadwalController::class, 'update']);
+    Route::delete('/kelas/{kelas_id}/jadwal/{id}', [JadwalController::class, 'destroy']);
+
 
     // Template download & import nilai
     Route::get('/kelas/{kelas_id}/semester/{semester_id}/download-template', [TemplateController::class, 'downloadTemplate']);
