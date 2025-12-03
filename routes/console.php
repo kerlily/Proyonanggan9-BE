@@ -14,6 +14,6 @@ Artisan::command('inspire', function () {
 
 
 // Cleanup old activity logs yearly at 4:00 AM
-Schedule::command('activitylog:cleanup --days=365')
-    ->yearly()
+Schedule::command('activitylog:cleanup --days=180')
+    ->monthly()
     ->at('04:00');

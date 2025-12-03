@@ -2,7 +2,7 @@
 
 return [
     'enabled' => env('ACTIVITY_LOG_ENABLED', true),
-    'delete_records_older_than_days' => 365,
+    'delete_records_older_than_days' => 180,
     'default_log_name' => 'default',
     'default_auth_driver' => null,
     'subject_returns_soft_deleted_models' => false,
