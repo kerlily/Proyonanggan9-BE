@@ -221,27 +221,29 @@ class BeritaController extends Controller
     }
 
     // delete berita (only author or admin)
-    public function destroy($id)
-    {
-        $user = auth()->guard('api')->user();
+  public function destroy($id)
+{
+    $user = auth()->guard('api')->user();
 
-        $berita = Berita::find($id);
-        if (!$berita) {
-            return response()->json([
-                'message' => 'Berita tidak ditemukan'
-            ], 404);
-        }
-
-        if (!$user || ($user->id !== $berita->created_by && $user->role !== 'admin')) {
-            return response()->json(['message' => 'Forbidden'], 403);
-        }
-
-        if ($berita->image && Storage::disk('public')->exists($berita->image)) {
-            Storage::disk('public')->delete($berita->image);
-        }
-
-        $berita->delete();
-
-        return response()->json(['message' => 'Berita deleted']);
+    $berita = Berita::find($id);
+    if (!$berita) {
+        return response()->json([
+            'message' => 'Berita tidak ditemukan'
+        ], 404);
     }
+
+    // admin & guru boleh hapus
+    if (!$user || !in_array($user->role, ['admin', 'guru'])) {
+        return response()->json(['message' => 'Forbidden'], 403);
+    }
+
+    if ($berita->image && Storage::disk('public')->exists($berita->image)) {
+        Storage::disk('public')->delete($berita->image);
+    }
+
+    $berita->delete();
+
+    return response()->json(['message' => 'Berita deleted']);
+}
+
 }
