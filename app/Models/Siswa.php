@@ -7,13 +7,14 @@ use Illuminate\Notifications\Notifiable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Tymon\JWTAuth\Contracts\JWTSubject;
 use Illuminate\Support\Facades\Hash;
-use App\Traits\LogsActivity;
 
 class Siswa extends Authenticatable implements JWTSubject
 {
-    use HasFactory, Notifiable, LogsActivity;
-    protected static $logAttributes = ['nama', 'tahun_lahir', 'kelas_id', 'is_alumni'];
-    protected static $logName = 'siswa';
+    use HasFactory, Notifiable;
+
+    // ✅ DISABLED: LogsActivity untuk performa login
+    // use LogsActivity;
+
     protected $table = 'siswa';
 
     protected $fillable = [
@@ -26,6 +27,8 @@ class Siswa extends Authenticatable implements JWTSubject
 
     protected $hidden = [
         'password',
+        'created_at',
+        'updated_at',
     ];
 
     protected $casts = [
@@ -33,11 +36,23 @@ class Siswa extends Authenticatable implements JWTSubject
         'tahun_lahir' => 'integer',
     ];
 
-    // auto-hash student password (default is tahun_lahir)
+    // ✅ CRITICAL: JANGAN auto-load relasi
+    // protected $with = ['kelas']; // ❌ NEVER DO THIS
+
+    /**
+     * ✅ OPTIMIZED: Password hashing
+     */
     public function setPasswordAttribute($value)
     {
         if ($value === null) return;
-        $this->attributes['password'] = Hash::needsRehash($value) ? Hash::make($value) : $value;
+
+        // Skip rehash jika sudah bcrypt format
+        if (strlen($value) === 60 && str_starts_with($value, '$2y$')) {
+            $this->attributes['password'] = $value;
+            return;
+        }
+
+        $this->attributes['password'] = Hash::make($value);
     }
 
     // JWTSubject
@@ -45,12 +60,19 @@ class Siswa extends Authenticatable implements JWTSubject
     {
         return $this->getKey();
     }
+
     public function getJWTCustomClaims()
     {
-        return [];
+        // ✅ Minimal claims = JWT token lebih kecil = lebih cepat
+        return [
+            'role' => 'siswa',
+            'kelas_id' => $this->kelas_id,
+        ];
     }
 
-    // relations
+    /**
+     * ✅ Relations - Lazy loading only
+     */
     public function kelas()
     {
         return $this->belongsTo(Kelas::class);
@@ -60,17 +82,35 @@ class Siswa extends Authenticatable implements JWTSubject
     {
         return $this->hasMany(Nilai::class);
     }
-     // ADD THIS: Relationship to riwayat_kelas
+
     public function riwayatKelas()
     {
         return $this->hasMany(RiwayatKelas::class);
     }
-      // Helper method to get class for specific academic year
+
+    /**
+     * ✅ Helper method tanpa cache
+     */
     public function getKelasForTahunAjaran($tahunAjaranId)
     {
         return $this->riwayatKelas()
-            ->with('kelas')
+            ->with('kelas:id,nama,tingkat,section')
             ->where('tahun_ajaran_id', $tahunAjaranId)
             ->first()?->kelas;
+    }
+
+    /**
+     * ✅ DISABLE activity logging untuk performa
+     */
+    protected static function boot()
+    {
+        parent::boot();
+
+        // ✅ Logging disabled untuk shared hosting performa
+        // Uncomment jika butuh logging tapi akan slow down login
+
+        // static::created(function ($siswa) {
+        //     activity()->performedOn($siswa)->log('created');
+        // });
     }
 }

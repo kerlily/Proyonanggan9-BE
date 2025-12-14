@@ -8,11 +8,12 @@ use App\Models\Siswa;
 use App\Models\Kelas;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
+use Carbon\Carbon;
 
 class ImportSiswaFromCsv extends Command
 {
     protected $signature = 'import:siswa {--file=storage/app/import/siswa.csv} {--dry-run}';
-    protected $description = 'Import siswa from CSV. CSV must contain nama,tahun_lahir,kelas_id or kelas_nama,is_alumni,created_at,updated_at';
+    protected $description = 'Import siswa from CSV. CSV must contain nama,tahun_lahir,kelas_id or kelas_nama,is_alumni';
 
     public function handle()
     {
@@ -30,36 +31,77 @@ class ImportSiswaFromCsv extends Command
         }
 
         $this->info("Reading CSV: $path");
-        $handle = fopen($path, 'r');
-        $headers = fgetcsv($handle);
+
+        // Read entire file content and remove BOM
+        $content = file_get_contents($path);
+
+        // Remove BOM if present (UTF-8 BOM is EF BB BF)
+        $content = $this->removeBOM($content);
+
+        // Create temporary stream from cleaned content
+        $handle = fopen('php://temp', 'r+');
+        fwrite($handle, $content);
+        rewind($handle);
+
+        // Read header
+        $headers = fgetcsv($handle, 0, ',', '"', '\\');
         if (!$headers) {
             $this->error("Empty or invalid CSV");
+            fclose($handle);
             return 1;
         }
 
-        // normalize headers
-        $origHeaders = $headers;
-        $headers = array_map(function($h){ return Str::lower(trim($h)); }, $headers);
+        // Normalize headers - remove any remaining non-printable chars
+        $headers = array_map(function($h){
+            // Remove BOM and other non-printable characters
+            $h = preg_replace('/[\x00-\x1F\x7F\xEF\xBB\xBF]/u', '', $h);
+            return Str::lower(trim($h));
+        }, $headers);
 
-        // collect rows and kelas names to resolve
+        $this->info("CSV Headers detected: " . implode(', ', $headers));
+
+        // Collect rows and kelas names to resolve
         $rows = [];
         $kelasNamesToResolve = [];
+        $lineNumber = 1; // Start from 1 (header)
 
-        while ($row = fgetcsv($handle)) {
-            if (count($row) === 0) continue;
-            // handle rows shorter than headers
+        while (($row = fgetcsv($handle, 0, ',', '"', '\\')) !== false) {
+            $lineNumber++;
+
+            // Skip empty rows
+            if (empty(array_filter($row))) {
+                $this->warn("Skipping empty row at line {$lineNumber}");
+                continue;
+            }
+
+            // Pad row to match header count
             $row = array_pad($row, count($headers), null);
+
+            // Combine with headers
             $assoc = array_combine($headers, $row);
-            // trim values
-            $assoc = array_map(fn($v) => $v === null ? null : trim($v), $assoc);
+
+            // Trim all values and remove BOM/non-printable chars
+            $assoc = array_map(function($v) {
+                if ($v === null) return null;
+                // Remove any BOM or non-printable characters from values
+                $v = preg_replace('/[\x00-\x1F\x7F\xEF\xBB\xBF]/u', '', $v);
+                return trim($v);
+            }, $assoc);
+
+            // Debug first row
+            if (count($rows) === 0) {
+                $this->info("Sample row data: " . json_encode($assoc, JSON_UNESCAPED_UNICODE));
+            }
+
             if (isset($assoc['kelas_nama']) && $assoc['kelas_nama'] !== '') {
                 $kelasNamesToResolve[] = $assoc['kelas_nama'];
             }
+
             $rows[] = $assoc;
         }
         fclose($handle);
 
-        // resolve kelas_nama -> kelas_id if needed
+        // Resolve kelas_nama -> kelas_id if needed
         $kelasMap = [];
         if (!empty($kelasNamesToResolve)) {
             $kelasNamesToResolve = array_unique($kelasNamesToResolve);
@@ -76,15 +118,18 @@ class ImportSiswaFromCsv extends Command
 
         $errors = [];
         $imported = 0;
+
         foreach ($rows as $i => $r) {
-            // basic mapping & default
+            $rowNumber = $i + 2; // +2 because header + 0-index
+
+            // Basic mapping & default
             $nama = $r['nama'] ?? null;
             $tahun_lahir = isset($r['tahun_lahir']) && $r['tahun_lahir'] !== '' ? (int)$r['tahun_lahir'] : null;
-            $is_alumni = isset($r['is_alumni']) && $r['is_alumni'] !== '' ? (bool)$r['is_alumni'] : false;
-            $created_at = $r['created_at'] ?? null;
-            $updated_at = $r['updated_at'] ?? null;
+            $is_alumni = isset($r['is_alumni'])
+            ? in_array(strtolower((string)$r['is_alumni']), ['1', 'true', 'ya', 'yes'], true)
+            : false;
 
-            // kelas_id resolution
+            // Kelas_id resolution
             $kelas_id = null;
             if (isset($r['kelas_id']) && $r['kelas_id'] !== '') {
                 $kelas_id = (int)$r['kelas_id'];
@@ -92,7 +137,12 @@ class ImportSiswaFromCsv extends Command
                 $kelas_id = $kelasMap[$r['kelas_nama']];
             }
 
-            // validation
+            // Debug info for problematic rows
+            if (empty($nama)) {
+                $this->warn("Row {$rowNumber} has empty nama. Raw data: " . json_encode($r, JSON_UNESCAPED_UNICODE));
+            }
+
+            // Validation
             $validator = Validator::make([
                 'nama' => $nama,
                 'tahun_lahir' => $tahun_lahir,
@@ -105,29 +155,27 @@ class ImportSiswaFromCsv extends Command
 
             if ($validator->fails()) {
                 $errors[] = [
-                    'row' => $i + 2, // +2 karena header + 0-index
+                    'row' => $rowNumber,
                     'errors' => $validator->errors()->all(),
                     'data' => $r,
                 ];
                 continue;
             }
 
-            // create siswa via Eloquent so mutator hashes password
+            // Create siswa via Eloquent so mutator hashes password
             try {
                 if ($this->option('dry-run')) {
                     $this->line("DRY: would create {$nama} / {$tahun_lahir} / kelas_id={$kelas_id}");
+                    $imported++;
                 } else {
-                    DB::transaction(function () use ($nama, $tahun_lahir, $kelas_id, $is_alumni, $created_at, $updated_at, &$imported) {
+                    DB::transaction(function () use ($nama, $tahun_lahir, $kelas_id, $is_alumni, &$imported) {
                         $payload = [
                             'nama' => $nama,
                             'tahun_lahir' => $tahun_lahir,
-                            // pass tahun_lahir as password so model mutator hashes it
                             'password' => (string)$tahun_lahir,
                             'kelas_id' => $kelas_id,
                             'is_alumni' => $is_alumni,
                         ];
-                        if ($created_at) $payload['created_at'] = $created_at;
-                        if ($updated_at) $payload['updated_at'] = $updated_at;
 
                         Siswa::create($payload);
                         $imported++;
@@ -135,7 +183,7 @@ class ImportSiswaFromCsv extends Command
                 }
             } catch (\Throwable $e) {
                 $errors[] = [
-                    'row' => $i + 2,
+                    'row' => $rowNumber,
                     'errors' => [$e->getMessage()],
                     'data' => $r,
                 ];
@@ -154,6 +202,26 @@ class ImportSiswaFromCsv extends Command
         }
 
         $this->info("Done.");
-        return 0;
+        return empty($errors) ? 0 : 1;
+    }
+
+    /**
+     * Remove BOM from string
+     */
+    private function removeBOM($text)
+    {
+        // Remove UTF-8 BOM
+        if (substr($text, 0, 3) == pack('CCC', 0xef, 0xbb, 0xbf)) {
+            $text = substr($text, 3);
+        }
+        // Remove UTF-16 BE BOM
+        if (substr($text, 0, 2) == pack('CC', 0xfe, 0xff)) {
+            $text = substr($text, 2);
+        }
+        // Remove UTF-16 LE BOM
+        if (substr($text, 0, 2) == pack('CC', 0xff, 0xfe)) {
+            $text = substr($text, 2);
+        }
+        return $text;
     }
 }
