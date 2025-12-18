@@ -85,6 +85,8 @@ Route::middleware(['auth:api'])->group(function () {
 
 
     Route::get('wali-kelas/nilai-detail/history', [WaliKelasController::class, 'getNilaiDetailHistory']);
+    Route::get('wali-kelas/nilai-history', [WaliKelasController::class, 'getNilaiHistory']);
+    Route::get('wali-kelas/nilai-history/detail', [WaliKelasController::class, 'getNilaiHistoryDetail']);
 });
 
 /**
