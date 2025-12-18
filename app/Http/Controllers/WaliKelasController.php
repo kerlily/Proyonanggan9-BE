@@ -168,4 +168,147 @@ class WaliKelasController extends Controller
 
         return response()->json($waliKelas);
     }
+
+    /**
+ * Get semua nilai detail untuk kelas yang diajar guru (semua tahun ajaran)
+ * GET /api/wali-kelas/nilai-detail?kelas_id=1
+ *
+ * Response format:
+ * {
+ *   "kelas": {...},
+ *   "tahun_ajaran_list": [
+ *     {
+ *       "tahun_ajaran": {...},
+ *       "struktur_nilai": [
+ *         {
+ *           "mapel": {...},
+ *           "semester": {...},
+ *           "struktur_id": 1,
+ *           "total_siswa": 30,
+ *           "siswa_selesai": 25,
+ *           "completion_rate": 83
+ *         }
+ *       ]
+ *     }
+ *   ]
+ * }
+ */
+public function getNilaiDetailHistory(Request $request)
+{
+    $user = auth()->guard('api')->user();
+    $guru = $user->guru;
+
+    if (!$guru) {
+        return response()->json(['message' => 'Not a guru'], 403);
+    }
+
+    $kelasId = $request->query('kelas_id');
+
+    if (!$kelasId) {
+        return response()->json(['message' => 'kelas_id parameter required'], 400);
+    }
+
+    $kelas = \App\Models\Kelas::findOrFail($kelasId);
+
+    // Verify guru pernah jadi wali kelas ini
+    $isWali = WaliKelas::where('guru_id', $guru->id)
+        ->where('kelas_id', $kelasId)
+        ->exists();
+
+    if (!$isWali && $user->role !== 'admin') {
+        return response()->json(['message' => 'Forbidden - Bukan wali kelas ini'], 403);
+    }
+
+    // Get semua tahun ajaran dimana guru ini wali kelas ini
+    $tahunAjaranIds = WaliKelas::where('guru_id', $guru->id)
+        ->where('kelas_id', $kelasId)
+        ->pluck('tahun_ajaran_id')
+        ->unique();
+
+    $result = [];
+
+    foreach ($tahunAjaranIds as $tahunId) {
+        $tahunAjaran = \App\Models\TahunAjaran::find($tahunId);
+
+        if (!$tahunAjaran) continue;
+
+        // Get semua struktur nilai di tahun ini
+        $strukturList = \App\Models\StrukturNilaiMapel::with(['mapel', 'semester'])
+            ->where('kelas_id', $kelasId)
+            ->where('tahun_ajaran_id', $tahunId)
+            ->get();
+
+        $strukturData = [];
+
+        foreach ($strukturList as $struktur) {
+            // Hitung progress
+            $totalSiswa = \DB::table('siswa')->where('kelas_id', $kelasId)->count();
+
+            // Hitung total kolom yang harus diisi
+            $lingkup = $struktur->struktur['lingkup_materi'] ?? [];
+            $totalKolom = 2; // ASLIM + ASAS
+            foreach ($lingkup as $lm) {
+                $formatif = $lm['formatif'] ?? [];
+                $totalKolom += count($formatif);
+            }
+
+            // Hitung siswa yang sudah selesai (100%)
+            $siswaSelesai = \DB::table('nilai_detail')
+                ->where('struktur_nilai_mapel_id', $struktur->id)
+                ->select('siswa_id', \DB::raw('COUNT(*) as nilai_count'))
+                ->groupBy('siswa_id')
+                ->having('nilai_count', '>=', $totalKolom)
+                ->count();
+
+            $completionRate = $totalSiswa > 0 ? round(($siswaSelesai / $totalSiswa) * 100) : 0;
+
+            $strukturData[] = [
+                'struktur_id' => $struktur->id,
+                'mapel' => [
+                    'id' => $struktur->mapel->id,
+                    'nama' => $struktur->mapel->nama,
+                    'kode' => $struktur->mapel->kode,
+                ],
+                'semester' => [
+                    'id' => $struktur->semester->id,
+                    'nama' => $struktur->semester->nama,
+                ],
+                'total_siswa' => $totalSiswa,
+                'total_kolom' => $totalKolom,
+                'siswa_selesai' => $siswaSelesai,
+                'completion_rate' => $completionRate,
+                'created_at' => $struktur->created_at,
+            ];
+        }
+
+        $result[] = [
+            'tahun_ajaran' => [
+                'id' => $tahunAjaran->id,
+                'nama' => $tahunAjaran->nama,
+                'is_active' => $tahunAjaran->is_active,
+            ],
+            'struktur_nilai' => $strukturData,
+        ];
+    }
+
+    // Sort by tahun ajaran terbaru dulu
+    usort($result, function($a, $b) {
+        return $b['tahun_ajaran']['id'] <=> $a['tahun_ajaran']['id'];
+    });
+
+    return response()->json([
+        'kelas' => [
+            'id' => $kelas->id,
+            'nama' => $kelas->nama,
+            'tingkat' => $kelas->tingkat,
+            'section' => $kelas->section,
+        ],
+        'guru' => [
+            'id' => $guru->id,
+            'nama' => $guru->nama,
+        ],
+        'tahun_ajaran_list' => $result,
+        'total_tahun_ajaran' => count($result),
+    ]);
+}
 }

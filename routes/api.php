@@ -83,6 +83,8 @@ Route::middleware(['auth:api'])->group(function () {
 
      Route::get('/beritas/all', [BeritaController::class, 'all']);
 
+
+    Route::get('wali-kelas/nilai-detail/history', [WaliKelasController::class, 'getNilaiDetailHistory']);
 });
 
 /**
