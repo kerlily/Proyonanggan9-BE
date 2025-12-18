@@ -45,10 +45,13 @@ use App\Http\Controllers\KetidakhadiranController;
  * -------------------------
  */
 Route::prefix('auth')->group(function () {
-    Route::post('login', [AuthController::class, 'login']); // /api/auth/login
-    Route::post('logout', [AuthController::class, 'logout'])->middleware('auth:api');
-    Route::post('refresh', [AuthController::class, 'refresh'])->middleware('auth:api');
-    Route::get('me', [AuthController::class, 'me'])->middleware('auth:api');
+    Route::post('login', [AuthController::class, 'login']);
+    Route::middleware('auth:api')->group(function () {
+        Route::post('logout', [AuthController::class, 'logout']);
+        Route::post('refresh', [AuthController::class, 'refresh']);
+        Route::get('me', [AuthController::class, 'me']);
+        Route::get('check-token', [AuthController::class, 'checkToken']);
+    });
 });
 
 /**
@@ -58,10 +61,13 @@ Route::prefix('auth')->group(function () {
  * -------------------------
  */
 Route::prefix('siswa')->group(function () {
-    Route::post('login', [SiswaAuthController::class, 'login']); // /api/siswa/login
-    Route::post('logout', [SiswaAuthController::class, 'logout'])->middleware('auth:siswa');
-    Route::post('refresh', [SiswaAuthController::class, 'refresh'])->middleware('auth:siswa');
-    Route::get('me', [SiswaAuthController::class, 'me'])->middleware('auth:siswa');
+    Route::post('login', [SiswaAuthController::class, 'login']);
+    Route::middleware('auth:siswa')->group(function () {
+        Route::post('logout', [SiswaAuthController::class, 'logout']);
+        Route::post('refresh', [SiswaAuthController::class, 'refresh']);
+        Route::get('me', [SiswaAuthController::class, 'me']);
+        Route::get('check-token', [SiswaAuthController::class, 'checkToken']);
+    });
 });
 
 /**
@@ -150,7 +156,7 @@ Route::prefix('admin')->middleware(['auth:api', 'is_admin'])->group(function () 
     Route::post('/siswa/{id}', [AdminUserController::class, 'updateSiswa']);
     Route::delete('/siswa/{id}', [AdminUserController::class, 'deleteSiswa']);
     Route::get('/guru/{id}', [AdminUserController::class, 'showGuru']);
-    Route::post('/guru/{id}', [AdminUserController::class, 'updateGuru']); // update via POST (you used same pattern for siswa)
+    Route::post('/guru/{id}', [AdminUserController::class, 'updateGuru']);
     Route::delete('/guru/{id}', [AdminUserController::class, 'deleteGuru']);
 
     // ===========================

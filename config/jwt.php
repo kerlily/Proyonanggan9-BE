@@ -15,14 +15,6 @@ return [
     |--------------------------------------------------------------------------
     | JWT Authentication Secret
     |--------------------------------------------------------------------------
-    |
-    | Don't forget to set this in your .env file, as it will be used to sign
-    | your tokens. A helper command is provided for this:
-    | `php artisan jwt:secret`
-    |
-    | Note: This will be used for Symmetric algorithms only (HMAC),
-    | since RSA and ECDSA use a private/public key combo (See below).
-    |
     */
 
     'secret' => env('JWT_SECRET'),
@@ -31,58 +23,12 @@ return [
     |--------------------------------------------------------------------------
     | JWT Authentication Keys
     |--------------------------------------------------------------------------
-    |
-    | The algorithm you are using, will determine whether your tokens are
-    | signed with a random string (defined in `JWT_SECRET`) or using the
-    | following public & private keys.
-    |
-    | Symmetric Algorithms:
-    | HS256, HS384 & HS512 will use `JWT_SECRET`.
-    |
-    | Asymmetric Algorithms:
-    | RS256, RS384 & RS512 / ES256, ES384 & ES512 will use the keys below.
-    |
     */
 
     'keys' => [
-
-        /*
-        |--------------------------------------------------------------------------
-        | Public Key
-        |--------------------------------------------------------------------------
-        |
-        | A path or resource to your public key.
-        |
-        | E.g. 'file://path/to/public/key'
-        |
-        */
-
         'public' => env('JWT_PUBLIC_KEY'),
-
-        /*
-        |--------------------------------------------------------------------------
-        | Private Key
-        |--------------------------------------------------------------------------
-        |
-        | A path or resource to your private key.
-        |
-        | E.g. 'file://path/to/private/key'
-        |
-        */
-
         'private' => env('JWT_PRIVATE_KEY'),
-
-        /*
-        |--------------------------------------------------------------------------
-        | Passphrase
-        |--------------------------------------------------------------------------
-        |
-        | The passphrase for your private key. Can be null if none set.
-        |
-        */
-
         'passphrase' => env('JWT_PASSPHRASE'),
-
     ],
 
     /*
@@ -90,45 +36,32 @@ return [
     | JWT time to live
     |--------------------------------------------------------------------------
     |
-    | Specify the length of time (in minutes) that the token will be valid for.
-    | Defaults to 1 hour.
-    |
-    | You can also set this to null, to yield a never expiring token.
-    | Some people may want this behaviour for e.g. a mobile app.
-    | This is not particularly recommended, so make sure you have appropriate
-    | systems in place to revoke the token if necessary.
-    | Notice: If you set this to null you should remove 'exp' element from 'required_claims' list.
+    | UPDATED: Set to 14 days (20160 minutes) for long-lived sessions
+    | Default was 60 minutes (1 hour)
+    | IMPORTANT: Cast to int to prevent Carbon type errors
     |
     */
 
-    'ttl' => env('JWT_TTL', 60),
+    'ttl' => (int) env('JWT_TTL', 20160), // 14 days = 14 * 24 * 60 = 20160 minutes
 
     /*
     |--------------------------------------------------------------------------
     | Refresh time to live
     |--------------------------------------------------------------------------
     |
-    | Specify the length of time (in minutes) that the token can be refreshed
-    | within. I.E. The user can refresh their token within a 2 week window of
-    | the original token being created until they must re-authenticate.
-    | Defaults to 2 weeks.
-    |
-    | You can also set this to null, to yield an infinite refresh time.
-    | Some may want this instead of never expiring tokens for e.g. a mobile app.
-    | This is not particularly recommended, so make sure you have appropriate
-    | systems in place to revoke the token if necessary.
+    | UPDATED: Set to 30 days (43200 minutes)
+    | This allows users to refresh their token within 30 days window
+    | Default was 20160 minutes (2 weeks)
+    | IMPORTANT: Cast to int to prevent Carbon type errors
     |
     */
 
-    'refresh_ttl' => env('JWT_REFRESH_TTL', 20160),
+    'refresh_ttl' => (int) env('JWT_REFRESH_TTL', 43200), // 30 days = 30 * 24 * 60 = 43200 minutes
 
     /*
     |--------------------------------------------------------------------------
     | JWT hashing algorithm
     |--------------------------------------------------------------------------
-    |
-    | Specify the hashing algorithm that will be used to sign the token.
-    |
     */
 
     'algo' => env('JWT_ALGO', Tymon\JWTAuth\Providers\JWT\Provider::ALGO_HS256),
@@ -137,11 +70,6 @@ return [
     |--------------------------------------------------------------------------
     | Required Claims
     |--------------------------------------------------------------------------
-    |
-    | Specify the required claims that must exist in any token.
-    | A TokenInvalidException will be thrown if any of these claims are not
-    | present in the payload.
-    |
     */
 
     'required_claims' => [
@@ -157,35 +85,16 @@ return [
     |--------------------------------------------------------------------------
     | Persistent Claims
     |--------------------------------------------------------------------------
-    |
-    | Specify the claim keys to be persisted when refreshing a token.
-    | `sub` and `iat` will automatically be persisted, in
-    | addition to the these claims.
-    |
-    | Note: If a claim does not exist then it will be ignored.
-    |
     */
 
     'persistent_claims' => [
-        // 'foo',
-        // 'bar',
+        // Add custom claims here if needed
     ],
 
     /*
     |--------------------------------------------------------------------------
     | Lock Subject
     |--------------------------------------------------------------------------
-    |
-    | This will determine whether a `prv` claim is automatically added to
-    | the token. The purpose of this is to ensure that if you have multiple
-    | authentication models e.g. `App\User` & `App\OtherPerson`, then we
-    | should prevent one authentication request from impersonating another,
-    | if 2 tokens happen to have the same id across the 2 different models.
-    |
-    | Under specific circumstances, you may want to disable this behaviour
-    | e.g. if you only have one authentication model, then you would save
-    | a little on token size.
-    |
     */
 
     'lock_subject' => true,
@@ -194,15 +103,6 @@ return [
     |--------------------------------------------------------------------------
     | Leeway
     |--------------------------------------------------------------------------
-    |
-    | This property gives the jwt timestamp claims some "leeway".
-    | Meaning that if you have any unavoidable slight clock skew on
-    | any of your servers then this will afford you some level of cushioning.
-    |
-    | This applies to the claims `iat`, `nbf` and `exp`.
-    |
-    | Specify in seconds - only if you know you need it.
-    |
     */
 
     'leeway' => env('JWT_LEEWAY', 0),
@@ -212,8 +112,8 @@ return [
     | Blacklist Enabled
     |--------------------------------------------------------------------------
     |
-    | In order to invalidate tokens, you must have the blacklist enabled.
-    | If you do not want or need this functionality, then set this to false.
+    | IMPORTANT: Keep this true for security
+    | This allows token invalidation on logout
     |
     */
 
@@ -224,30 +124,18 @@ return [
     | Blacklist Grace Period
     | -------------------------------------------------------------------------
     |
-    | When multiple concurrent requests are made with the same JWT,
-    | it is possible that some of them fail, due to token regeneration
-    | on every request.
-    |
-    | Set grace period in seconds to prevent parallel request failure.
+    | UPDATED: Set grace period to 30 seconds to handle concurrent requests
+    | This prevents race conditions when refreshing tokens
+    | IMPORTANT: Cast to int to prevent type errors
     |
     */
 
-    'blacklist_grace_period' => env('JWT_BLACKLIST_GRACE_PERIOD', 0),
+    'blacklist_grace_period' => (int) env('JWT_BLACKLIST_GRACE_PERIOD', 30),
 
     /*
     |--------------------------------------------------------------------------
     | Cookies encryption
     |--------------------------------------------------------------------------
-    |
-    | By default Laravel encrypt cookies for security reason.
-    | If you decide to not decrypt cookies, you will have to configure Laravel
-    | to not encrypt your cookie token by adding its name into the $except
-    | array available in the middleware "EncryptCookies" provided by Laravel.
-    | see https://laravel.com/docs/master/responses#cookies-and-encryption
-    | for details.
-    |
-    | Set it to true if you want to decrypt cookies.
-    |
     */
 
     'decrypt_cookies' => false,
@@ -256,46 +144,12 @@ return [
     |--------------------------------------------------------------------------
     | Providers
     |--------------------------------------------------------------------------
-    |
-    | Specify the various providers used throughout the package.
-    |
     */
 
     'providers' => [
-
-        /*
-        |--------------------------------------------------------------------------
-        | JWT Provider
-        |--------------------------------------------------------------------------
-        |
-        | Specify the provider that is used to create and decode the tokens.
-        |
-        */
-
         'jwt' => Tymon\JWTAuth\Providers\JWT\Lcobucci::class,
-
-        /*
-        |--------------------------------------------------------------------------
-        | Authentication Provider
-        |--------------------------------------------------------------------------
-        |
-        | Specify the provider that is used to authenticate users.
-        |
-        */
-
         'auth' => Tymon\JWTAuth\Providers\Auth\Illuminate::class,
-
-        /*
-        |--------------------------------------------------------------------------
-        | Storage Provider
-        |--------------------------------------------------------------------------
-        |
-        | Specify the provider that is used to store tokens in the blacklist.
-        |
-        */
-
         'storage' => Tymon\JWTAuth\Providers\Storage\Illuminate::class,
-
     ],
 
 ];

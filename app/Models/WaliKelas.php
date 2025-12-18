@@ -14,10 +14,16 @@ class WaliKelas extends Model
     protected $table = 'wali_kelas';
 
     protected $fillable = [
-        'guru_id',
-        'kelas_id',
-        'tahun_ajaran_id',
+    'guru_id',
+    'kelas_id',
+    'tahun_ajaran_id',
+    'is_primary',
     ];
+
+    protected $casts = [
+    'is_primary' => 'boolean',
+    ];
+
 
     public function guru()
     {
