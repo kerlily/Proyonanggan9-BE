@@ -27,7 +27,7 @@ use App\Http\Controllers\ActivityLogController;
 use App\Http\Controllers\BackupController;
 use App\Http\Controllers\NilaiSikapController;
 use App\Http\Controllers\KetidakhadiranController;
-
+use App\Http\Controllers\NilaiMonitoringController;
 
 /*
 |--------------------------------------------------------------------------
@@ -232,6 +232,10 @@ Route::prefix('admin')->middleware(['auth:api', 'is_admin'])->group(function () 
 
     // Get activity logs by user
     Route::get('/activity-logs/user/{userId}', [ActivityLogController::class, 'userActivity']);
+
+    // MONITORING NILAI AKHIR
+    Route::get('/nilai-akhir/monitoring', [NilaiMonitoringController::class, 'monitoring']);
+    Route::get('/nilai-akhir/monitoring/kelas/{kelas_id}/missing', [NilaiMonitoringController::class, 'missingDetail']);
 });
 
 /**
