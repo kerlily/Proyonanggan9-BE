@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
 use App\Models\User;
 use App\Models\Guru;
 use App\Models\Siswa;
@@ -234,6 +235,10 @@ public function deleteAdmin($id)
 
     } catch (\Throwable $e) {
         DB::rollBack();
+        Log::error('Error deleting admin', [
+            'admin_id' => $id,
+            'error' => $e->getMessage()
+        ]);
         return response()->json([
             'message' => 'Error deleting admin: ' . $e->getMessage()
         ], 500);
@@ -418,10 +423,10 @@ public function deleteGuru($id)
 
     DB::beginTransaction();
     try {
-        // SOFT DELETE - data masih bisa di-restore
         $user = $guru->user;
 
-        // Soft delete guru
+        // SOFT DELETE - data masih bisa di-restore
+        // Soft delete guru DULU
         $guru->delete();
 
         // Soft delete user jika ada
@@ -435,6 +440,7 @@ public function deleteGuru($id)
             'admin_id' => auth()->guard('api')->id(),
             'guru_id' => $guru->id,
             'guru_nama' => $guru->nama,
+            'user_id' => $user ? $user->id : null,
             'note' => 'Data bisa di-restore dari trash'
         ]);
 
@@ -443,10 +449,15 @@ public function deleteGuru($id)
             'deleted' => [
                 'guru_id' => $guru->id,
                 'guru_nama' => $guru->nama,
+                'user_id' => $user ? $user->id : null,
             ]
         ], 200);
     } catch (\Throwable $e) {
         DB::rollBack();
+        Log::error('Error deleting guru', [
+            'guru_id' => $id,
+            'error' => $e->getMessage()
+        ]);
         return response()->json([
             'message' => 'Error deleting guru: '.$e->getMessage()
         ], 500);
@@ -640,7 +651,6 @@ public function deleteSiswa($id)
     DB::beginTransaction();
     try {
         // SOFT DELETE - nilai dan riwayat TIDAK dihapus
-        // Hanya siswa yang di-soft delete
         $siswaData = [
             'id' => $siswa->id,
             'nama' => $siswa->nama,
@@ -665,12 +675,15 @@ public function deleteSiswa($id)
         ], 200);
     } catch (\Throwable $e) {
         DB::rollBack();
+        Log::error('Error deleting siswa', [
+            'siswa_id' => $id,
+            'error' => $e->getMessage()
+        ]);
         return response()->json([
             'message' => 'Error deleting siswa: '.$e->getMessage()
         ], 500);
     }
 }
-
 
 /**
  * List siswa DENGAN filter trashed

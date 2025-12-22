@@ -1,5 +1,4 @@
 <?php
-// app/Http/Controllers/TrashController.php
 
 namespace App\Http\Controllers;
 
@@ -71,81 +70,125 @@ class TrashController extends Controller
      * POST /api/admin/trash/users/{id}/restore
      */
     public function restoreUser($id)
-    {
-        $user = User::onlyTrashed()->with('guru')->findOrFail($id);
+{
+    // ✅ PENTING: Pakai withTrashed() untuk bisa akses relasi yang soft deleted
+    $user = User::onlyTrashed()->findOrFail($id);
 
-        try {
-            DB::beginTransaction();
+    try {
+        DB::beginTransaction();
 
-            $user->restore();
+        // ✅ Restore user DULU
+        $user->restore();
 
-            // Restore guru jika ada
-            if ($user->guru) {
-                $user->guru->restore();
-            }
+        // ✅ PENTING: Reload user untuk bisa akses relasi guru yang masih trashed
+        // Pakai withTrashed() untuk bisa query guru yang soft deleted
+        $guru = Guru::onlyTrashed()->where('user_id', $user->id)->first();
 
-            DB::commit();
-
-            Log::info('User restored from trash', [
-                'admin_id' => auth()->guard('api')->id(),
-                'restored_user_id' => $user->id,
-                'restored_user_email' => $user->email,
+        // ✅ Restore guru jika ada DAN masih dalam keadaan trashed
+        if ($guru && $guru->trashed()) {
+            $guru->restore();
+            Log::info('Guru restored along with user', [
+                'guru_id' => $guru->id,
+                'guru_nama' => $guru->nama,
             ]);
-
-            return response()->json([
-                'message' => 'User berhasil dipulihkan',
-                'user' => $user
-            ]);
-        } catch (\Exception $e) {
-            DB::rollBack();
-            return response()->json([
-                'message' => 'Error: ' . $e->getMessage()
-            ], 500);
         }
+
+        DB::commit();
+
+        Log::info('User restored from trash', [
+            'admin_id' => auth()->guard('api')->id(),
+            'restored_user_id' => $user->id,
+            'restored_user_email' => $user->email,
+            'has_guru' => $guru ? true : false,
+            'guru_restored' => $guru && !$guru->trashed() ? true : false,
+        ]);
+
+        // ✅ Reload user dengan relasi guru yang sudah di-restore
+        $user->load('guru');
+
+        return response()->json([
+            'message' => 'User berhasil dipulihkan',
+            'user' => [
+                'id' => $user->id,
+                'name' => $user->name,
+                'email' => $user->email,
+                'role' => $user->role,
+                'deleted_at' => $user->deleted_at, // Should be null
+            ],
+            'guru' => $guru ? [
+                'id' => $guru->id,
+                'nama' => $guru->nama,
+                'nip' => $guru->nip,
+                'deleted_at' => $guru->deleted_at, // Should be null
+            ] : null
+        ]);
+    } catch (\Exception $e) {
+        DB::rollBack();
+        Log::error('Error restoring user', [
+            'user_id' => $id,
+            'error' => $e->getMessage(),
+            'trace' => $e->getTraceAsString()
+        ]);
+        return response()->json([
+            'message' => 'Error: ' . $e->getMessage()
+        ], 500);
     }
+}
 
     /**
      * Permanent delete user
      * DELETE /api/admin/trash/users/{id}/force
      */
-    public function forceDeleteUser($id)
-    {
-        $user = User::onlyTrashed()->findOrFail($id);
+   public function forceDeleteUser($id)
+{
+    $user = User::onlyTrashed()->findOrFail($id);
 
-        try {
-            DB::beginTransaction();
+    try {
+        DB::beginTransaction();
 
-            // Hapus guru jika ada
-            if ($user->guru) {
-                $user->guru->forceDelete();
-            }
+        // ✅ Ambil guru yang mungkin masih trashed
+        $guru = Guru::onlyTrashed()->where('user_id', $user->id)->first();
 
-            $userData = [
-                'id' => $user->id,
-                'name' => $user->name,
-                'email' => $user->email,
-            ];
-
-            $user->forceDelete();
-
-            DB::commit();
-
-            Log::warning('User permanently deleted', [
-                'admin_id' => auth()->guard('api')->id(),
-                'deleted_user' => $userData,
+        // Hapus guru PERMANEN jika ada
+        if ($guru) {
+            $guru->forceDelete();
+            Log::info('Guru force deleted', [
+                'guru_id' => $guru->id,
+                'guru_nama' => $guru->nama
             ]);
-
-            return response()->json([
-                'message' => 'User berhasil dihapus permanen (tidak bisa dikembalikan)'
-            ]);
-        } catch (\Exception $e) {
-            DB::rollBack();
-            return response()->json([
-                'message' => 'Error: ' . $e->getMessage()
-            ], 500);
         }
-    }
 
+        $userData = [
+            'id' => $user->id,
+            'name' => $user->name,
+            'email' => $user->email,
+            'role' => $user->role,
+        ];
+
+        $user->forceDelete();
+
+        DB::commit();
+
+        Log::warning('User permanently deleted', [
+            'admin_id' => auth()->guard('api')->id(),
+            'deleted_user' => $userData,
+            'had_guru' => $guru ? true : false
+        ]);
+
+        return response()->json([
+            'message' => 'User berhasil dihapus permanen (tidak bisa dikembalikan)'
+        ]);
+    } catch (\Exception $e) {
+        DB::rollBack();
+        Log::error('Error force deleting user', [
+            'user_id' => $id,
+            'error' => $e->getMessage()
+        ]);
+        return response()->json([
+            'message' => 'Error: ' . $e->getMessage()
+        ], 500);
+    }
+}
     /**
      * ========================================
      * SISWA TRASH
