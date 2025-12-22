@@ -28,6 +28,7 @@ use App\Http\Controllers\BackupController;
 use App\Http\Controllers\NilaiSikapController;
 use App\Http\Controllers\KetidakhadiranController;
 use App\Http\Controllers\NilaiMonitoringController;
+use App\Http\Controllers\TrashController;
 
 /*
 |--------------------------------------------------------------------------
@@ -382,6 +383,43 @@ Route::prefix('admin')->middleware(['auth:api', 'is_admin'])->group(function () 
 
     Route::get('/guru', [AdminUserController::class, 'indexGuru']);
 
+});
+
+
+/**
+ * ========================================
+ * TRASH MANAGEMENT (Soft Delete)
+ * Admin only - untuk manage data yang sudah dihapus
+ * ========================================
+ */
+Route::prefix('admin/trash')->middleware(['auth:api', 'is_admin'])->group(function () {
+
+    // Dashboard trash
+    Route::get('/stats', [TrashController::class, 'stats']);
+
+    // Bulk operations
+    Route::post('/bulk-restore', [TrashController::class, 'bulkRestore']);
+
+    // ===========================
+    // USERS TRASH
+    // ===========================
+    Route::get('/users', [TrashController::class, 'indexUsers']);
+    Route::post('/users/{id}/restore', [TrashController::class, 'restoreUser']);
+    Route::delete('/users/{id}/force', [TrashController::class, 'forceDeleteUser']);
+
+    // ===========================
+    // SISWA TRASH
+    // ===========================
+    Route::get('/siswa', [TrashController::class, 'indexSiswa']);
+    Route::post('/siswa/{id}/restore', [TrashController::class, 'restoreSiswa']);
+    Route::delete('/siswa/{id}/force', [TrashController::class, 'forceDeleteSiswa']);
+
+    // ===========================
+    // KELAS TRASH
+    // ===========================
+    Route::get('/kelas', [TrashController::class, 'indexKelas']);
+    Route::post('/kelas/{id}/restore', [TrashController::class, 'restoreKelas']);
+    Route::delete('/kelas/{id}/force', [TrashController::class, 'forceDeleteKelas']);
 });
 
 Route::middleware(['auth:api', 'is_admin_or_guru'])->group(function () {

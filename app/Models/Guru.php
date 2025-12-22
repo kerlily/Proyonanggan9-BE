@@ -4,12 +4,16 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\SoftDeletes; // ✅ TAMBAH INI
 use App\Traits\LogsActivity;
+
 class Guru extends Model
 {
-    use HasFactory, LogsActivity;
-        protected static $logAttributes = ['nama', 'nip', 'no_hp'];
+    use HasFactory, LogsActivity, SoftDeletes; // ✅ TAMBAH SoftDeletes
+
+    protected static $logAttributes = ['nama', 'nip', 'no_hp'];
     protected static $logName = 'guru';
+
     protected $table = 'guru';
 
     protected $fillable = [
@@ -20,10 +24,13 @@ class Guru extends Model
         'photo',
     ];
 
-    // tambahkan accessor otomatis muncul di JSON
     protected $appends = ['photo_url'];
 
-    // relations
+    // ✅ TAMBAH: Cast deleted_at
+    protected $casts = [
+        'deleted_at' => 'datetime',
+    ];
+
     public function user()
     {
         return $this->belongsTo(User::class, 'user_id');
@@ -39,22 +46,22 @@ class Guru extends Model
         return $this->hasMany(Nilai::class, 'input_by_guru_id');
     }
 
-    /**
-     * Accessor: getPhotoUrlAttribute
-     * FIXED: Pattern PERSIS seperti PublicGuruController
-     */
     public function getPhotoUrlAttribute()
     {
         if (!$this->photo) {
             return null;
         }
 
-        // Jika sudah absolute URL, return as is
         if (preg_match('/^https?:\\/\\//i', $this->photo)) {
             return $this->photo;
         }
 
-        // FIXED: Pattern SAMA dengan PublicGuruController
         return url('storage/'.$this->photo);
+    }
+
+    // ✅ TAMBAH: Helper untuk cek status
+    public function isDeleted(): bool
+    {
+        return $this->trashed();
     }
 }

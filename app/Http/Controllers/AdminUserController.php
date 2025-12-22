@@ -189,56 +189,56 @@ class AdminUserController extends Controller
         }
     }
 
-    /**
-     * Delete admin user
-     * DELETE /api/admin/admins/{id}
-     *
-     * NOTE: Tidak bisa menghapus diri sendiri
-     */
-    public function deleteAdmin($id)
-    {
-        $user = User::where('role', 'admin')->find($id);
+/**
+ * Delete admin user (SOFT DELETE)
+ * DELETE /api/admin/admins/{id}
+ */
+public function deleteAdmin($id)
+{
+    $user = User::where('role', 'admin')->find($id);
 
-        if (!$user) {
-            return response()->json(['message' => 'Admin not found'], 404);
-        }
-
-        // Prevent self-deletion
-        $currentUserId = auth()->guard('api')->id();
-        if ($user->id === $currentUserId) {
-            return response()->json([
-                'message' => 'Cannot delete your own admin account'
-            ], 422);
-        }
-
-        DB::beginTransaction();
-        try {
-            $adminData = [
-                'id' => $user->id,
-                'name' => $user->name,
-                'email' => $user->email,
-            ];
-
-            $user->delete();
-            DB::commit();
-
-            \Illuminate\Support\Facades\Log::info('Admin deleted another admin user', [
-                'deleter_id' => $currentUserId,
-                'deleted_admin' => $adminData,
-            ]);
-
-            return response()->json([
-                'message' => 'Admin deleted successfully'
-            ], 200);
-
-        } catch (\Throwable $e) {
-            DB::rollBack();
-            return response()->json([
-                'message' => 'Error deleting admin: ' . $e->getMessage()
-            ], 500);
-        }
+    if (!$user) {
+        return response()->json(['message' => 'Admin not found'], 404);
     }
 
+    // Prevent self-deletion
+    $currentUserId = auth()->guard('api')->id();
+    if ($user->id === $currentUserId) {
+        return response()->json([
+            'message' => 'Cannot delete your own admin account'
+        ], 422);
+    }
+
+    DB::beginTransaction();
+    try {
+        $adminData = [
+            'id' => $user->id,
+            'name' => $user->name,
+            'email' => $user->email,
+        ];
+
+        // SOFT DELETE
+        $user->delete();
+
+        DB::commit();
+
+        Log::info('Admin user soft deleted', [
+            'deleter_id' => $currentUserId,
+            'deleted_admin' => $adminData,
+            'note' => 'Data bisa di-restore dari trash'
+        ]);
+
+        return response()->json([
+            'message' => 'Admin berhasil dihapus (bisa dipulihkan dari trash)'
+        ], 200);
+
+    } catch (\Throwable $e) {
+        DB::rollBack();
+        return response()->json([
+            'message' => 'Error deleting admin: ' . $e->getMessage()
+        ], 500);
+    }
+}
     /**
      * Reset admin password
      * POST /api/admin/admins/{id}/reset-password
@@ -404,36 +404,52 @@ public function updateGuru(Request $request, $id)
 }
 
 /**
- * Delete guru (admin)
- * Removes guru record and associated user. Also deletes photo file.
+ * Delete guru (SOFT DELETE)
+ * DELETE /api/admin/guru/{id}
+ *
+ * Data tidak dihapus permanen, bisa di-restore dari trash
  */
 public function deleteGuru($id)
 {
     $guru = Guru::with('user')->find($id);
-    if (! $guru) {
+    if (!$guru) {
         return response()->json(['message' => 'Guru not found'], 404);
     }
 
     DB::beginTransaction();
     try {
-        // delete photo file if exists (on disk 'public')
-        if ($guru->photo && Storage::disk('public')->exists($guru->photo)) {
-            Storage::disk('public')->delete($guru->photo);
-        }
-
-        // delete guru, then delete user
+        // SOFT DELETE - data masih bisa di-restore
         $user = $guru->user;
+
+        // Soft delete guru
         $guru->delete();
+
+        // Soft delete user jika ada
         if ($user) {
             $user->delete();
         }
 
         DB::commit();
 
-        return response()->json(['message' => 'Guru deleted successfully'], 200);
+        Log::info('Guru soft deleted', [
+            'admin_id' => auth()->guard('api')->id(),
+            'guru_id' => $guru->id,
+            'guru_nama' => $guru->nama,
+            'note' => 'Data bisa di-restore dari trash'
+        ]);
+
+        return response()->json([
+            'message' => 'Guru berhasil dihapus (bisa dipulihkan dari trash)',
+            'deleted' => [
+                'guru_id' => $guru->id,
+                'guru_nama' => $guru->nama,
+            ]
+        ], 200);
     } catch (\Throwable $e) {
         DB::rollBack();
-        return response()->json(['message' => 'Error deleting guru: '.$e->getMessage()], 500);
+        return response()->json([
+            'message' => 'Error deleting guru: '.$e->getMessage()
+        ], 500);
     }
 }
 
@@ -609,8 +625,10 @@ public function updateSiswa(Request $request, $id)
 }
 
 /**
- * Delete Siswa + related records (nilai, riwayat_kelas)
- * FIXED: Import model yang benar
+ * Delete siswa (SOFT DELETE)
+ * DELETE /api/admin/siswa/{id}
+ *
+ * Data tidak dihapus permanen, bisa di-restore dari trash
  */
 public function deleteSiswa($id)
 {
@@ -621,19 +639,29 @@ public function deleteSiswa($id)
 
     DB::beginTransaction();
     try {
-        // Hapus nilai terkait (cascade handled by FK, tapi kita bisa manual juga)
-        \App\Models\Nilai::where('siswa_id', $siswa->id)->delete();
+        // SOFT DELETE - nilai dan riwayat TIDAK dihapus
+        // Hanya siswa yang di-soft delete
+        $siswaData = [
+            'id' => $siswa->id,
+            'nama' => $siswa->nama,
+            'nilai_count' => $siswa->nilai()->count(),
+        ];
 
-        // Hapus riwayat_kelas terkait (cascade handled by FK)
-        \App\Models\RiwayatKelas::where('siswa_id', $siswa->id)->delete();
-
-        // Hapus record siswa
         $siswa->delete();
 
         DB::commit();
 
+        Log::info('Siswa soft deleted', [
+            'admin_id' => auth()->guard('api')->id(),
+            'siswa_id' => $siswa->id,
+            'siswa_nama' => $siswa->nama,
+            'note' => 'Data nilai tetap ada, bisa di-restore dari trash'
+        ]);
+
         return response()->json([
-            'message' => 'Siswa deleted successfully'
+            'message' => 'Siswa berhasil dihapus (bisa dipulihkan dari trash)',
+            'deleted' => $siswaData,
+            'note' => 'Data nilai dan riwayat kelas tetap tersimpan'
         ], 200);
     } catch (\Throwable $e) {
         DB::rollBack();
@@ -645,45 +673,40 @@ public function deleteSiswa($id)
 
 
 /**
- * Detail siswa untuk admin (include relasi penting)
- * Fixed: orderBy menggunakan kolom yang benar
- */
-/**
- * List siswa untuk admin dengan pagination, search, filter, dan sort
- * FIXED: Hanya menggunakan kolom yang ada di table siswa
+ * List siswa DENGAN filter trashed
+ * GET /api/admin/siswa?include_trashed=true
  */
 public function indexSiswa(Request $request)
 {
     $perPage = (int) $request->query('per_page', 15);
-    $search  = $request->query('search', null);
+    $search = $request->query('search', null);
     $kelasId = $request->query('kelas_id', null);
     $isAlumni = $request->query('is_alumni', null);
-    $sortBy  = $request->query('sort_by', 'nama');
+    $sortBy = $request->query('sort_by', 'nama');
     $sortDir = strtolower($request->query('sort_dir', 'asc')) === 'desc' ? 'desc' : 'asc';
 
-    $query = Siswa::query();
+    // ✅ TAMBAH: Option untuk include deleted
+    $includeTrashed = $request->query('include_trashed', false);
 
-    // Eager load relasi kelas
-    $query->with(['kelas']);
+    // ✅ MODIFIKASI: Support query trashed data
+    $query = $includeTrashed
+        ? Siswa::withTrashed()->with(['kelas'])
+        : Siswa::query()->with(['kelas']);
 
-    // Search: hanya berdasarkan nama (karena nis tidak ada)
     if ($search) {
         $query->where('nama', 'like', "%{$search}%");
     }
 
-    // Filter by kelas_id
     if ($kelasId) {
         $query->where('kelas_id', $kelasId);
     }
 
-    // Filter by is_alumni
     if ($isAlumni !== null) {
         $query->where('is_alumni', (bool) $isAlumni);
     }
 
-    // Guard allowed sort columns - HANYA kolom yang ada di table siswa
     $allowedSort = ['id', 'nama', 'tahun_lahir', 'is_alumni', 'kelas_id', 'created_at', 'updated_at'];
-    if (! in_array($sortBy, $allowedSort)) {
+    if (!in_array($sortBy, $allowedSort)) {
         $sortBy = 'nama';
     }
 
@@ -792,29 +815,30 @@ public function showSiswa($id)
     ], 200);
 }
 
-    /**
- * List guru untuk admin dengan pagination, search, dan sort sederhana.
- * Query params:
- *  - page, per_page (default 15)
- *  - q (search by guru.nama atau user.email)
- *  - sort_by (allowed: id, nama, created_at)
- *  - sort_dir (asc|desc)
+
+/**
+ * List guru DENGAN filter trashed
+ * GET /api/admin/guru?include_trashed=true
  */
 public function indexGuru(Request $request)
 {
     $perPage = (int) $request->query('per_page', 15);
-    $q       = $request->query('q', null);
-    $sortBy  = $request->query('sort_by', 'nama');
+    $q = $request->query('q', null);
+    $sortBy = $request->query('sort_by', 'nama');
     $sortDir = strtolower($request->query('sort_dir', 'asc')) === 'desc' ? 'desc' : 'asc';
 
-    // allowed columns
+    // ✅ TAMBAH: Option untuk include deleted
+    $includeTrashed = $request->query('include_trashed', false);
+
     $allowedSort = ['id', 'nama', 'created_at', 'updated_at'];
-    if (! in_array($sortBy, $allowedSort)) {
+    if (!in_array($sortBy, $allowedSort)) {
         $sortBy = 'nama';
     }
 
-    // Query: ambil data guru + relasi user (untuk email, dll)
-    $query = Guru::query()->with('user');
+    // ✅ MODIFIKASI: Support query trashed data
+    $query = $includeTrashed
+        ? Guru::withTrashed()->with('user')
+        : Guru::query()->with('user');
 
     if ($q) {
         $query->where(function($sub) use ($q) {
@@ -829,7 +853,7 @@ public function indexGuru(Request $request)
                     ->paginate($perPage)
                     ->appends($request->query());
 
-    // Normalisasi response: pelanggan frontend ingin array data (data) + pagination
     return response()->json($result, 200);
 }
+
 }
