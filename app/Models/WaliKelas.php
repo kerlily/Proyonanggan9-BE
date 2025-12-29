@@ -4,18 +4,26 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use App\Traits\LogsActivity;
 
 class WaliKelas extends Model
 {
-    use HasFactory;
-
+    use HasFactory, LogsActivity;
+    protected static $logAttributes = ['guru_id', 'kelas_id', 'tahun_ajaran_id'];
+    protected static $logName = 'wali_kelas';
     protected $table = 'wali_kelas';
 
     protected $fillable = [
-        'guru_id',
-        'kelas_id',
-        'tahun_ajaran_id',
+    'guru_id',
+    'kelas_id',
+    'tahun_ajaran_id',
+    'is_primary',
     ];
+
+    protected $casts = [
+    'is_primary' => 'boolean',
+    ];
+
 
     public function guru()
     {

@@ -21,6 +21,15 @@ use App\Http\Controllers\PublicKelasController;
 use App\Http\Controllers\TahunAjaranController;
 use App\Http\Controllers\MapelController;
 use App\Http\Controllers\KelasMapelController;
+use App\Http\Controllers\StrukturNilaiMapelController;
+use App\Http\Controllers\NilaiDetailController;
+use App\Http\Controllers\ActivityLogController;
+use App\Http\Controllers\BackupController;
+use App\Http\Controllers\NilaiSikapController;
+use App\Http\Controllers\KetidakhadiranController;
+use App\Http\Controllers\NilaiMonitoringController;
+use App\Http\Controllers\TrashController;
+
 /*
 |--------------------------------------------------------------------------
 | API Routes
@@ -37,10 +46,13 @@ use App\Http\Controllers\KelasMapelController;
  * -------------------------
  */
 Route::prefix('auth')->group(function () {
-    Route::post('login', [AuthController::class, 'login']); // /api/auth/login
-    Route::post('logout', [AuthController::class, 'logout'])->middleware('auth:api');
-    Route::post('refresh', [AuthController::class, 'refresh'])->middleware('auth:api');
-    Route::get('me', [AuthController::class, 'me'])->middleware('auth:api');
+    Route::post('login', [AuthController::class, 'login']);
+    Route::middleware('auth:api')->group(function () {
+        Route::post('logout', [AuthController::class, 'logout']);
+        Route::post('refresh', [AuthController::class, 'refresh']);
+        Route::get('me', [AuthController::class, 'me']);
+        Route::get('check-token', [AuthController::class, 'checkToken']);
+    });
 });
 
 /**
@@ -50,10 +62,13 @@ Route::prefix('auth')->group(function () {
  * -------------------------
  */
 Route::prefix('siswa')->group(function () {
-    Route::post('login', [SiswaAuthController::class, 'login']); // /api/siswa/login
-    Route::post('logout', [SiswaAuthController::class, 'logout'])->middleware('auth:siswa');
-    Route::post('refresh', [SiswaAuthController::class, 'refresh'])->middleware('auth:siswa');
-    Route::get('me', [SiswaAuthController::class, 'me'])->middleware('auth:siswa');
+    Route::post('login', [SiswaAuthController::class, 'login']);
+    Route::middleware('auth:siswa')->group(function () {
+        Route::post('logout', [SiswaAuthController::class, 'logout']);
+        Route::post('refresh', [SiswaAuthController::class, 'refresh']);
+        Route::get('me', [SiswaAuthController::class, 'me']);
+        Route::get('check-token', [SiswaAuthController::class, 'checkToken']);
+    });
 });
 
 /**
@@ -65,6 +80,14 @@ Route::prefix('siswa')->group(function () {
 Route::middleware(['auth:api'])->group(function () {
     Route::post('/me/profile', [ProfileController::class, 'updateUserProfile']);   // update nama/email/no_hp/photo
     Route::post('/me/password', [ProfileController::class, 'changeUserPassword']); // ganti password
+    Route::get('wali-kelas/me', [WaliKelasController::class, 'showByGuru']);
+
+     Route::get('/beritas/all', [BeritaController::class, 'all']);
+
+
+    Route::get('wali-kelas/nilai-detail/history', [WaliKelasController::class, 'getNilaiDetailHistory']);
+    Route::get('wali-kelas/nilai-history', [WaliKelasController::class, 'getNilaiHistory']);
+    Route::get('wali-kelas/nilai-history/detail', [WaliKelasController::class, 'getNilaiHistoryDetail']);
 });
 
 /**
@@ -85,8 +108,44 @@ Route::middleware(['auth:siswa'])->group(function () {
  * -------------------------
  */
 Route::middleware(['auth:api', 'wali.kelas'])->group(function () {
-    Route::post('/kelas/{kelas_id}/nilai', [NilaiController::class, 'store']);         // create / upsert nilai
-    Route::put('/kelas/{kelas_id}/nilai/{id}', [NilaiController::class, 'update']);    // update nilai by id
+    Route::post('/kelas/{kelas_id}/nilai', [NilaiController::class, 'store']);
+    Route::put('/kelas/{kelas_id}/nilai/{id}', [NilaiController::class, 'update']);
+    Route::get('/kelas/{kelas_id}/nilaiKelas', [NilaiController::class, 'indexByKelas']);
+
+     // ===========================
+    // NILAI SIKAP
+    // ===========================
+
+    // Get semua nilai sikap di kelas (per semester)
+    Route::get('/kelas/{kelas_id}/nilai-sikap', [NilaiSikapController::class, 'index']);
+
+    // Store/Update satu nilai sikap siswa
+    Route::post('/kelas/{kelas_id}/nilai-sikap', [NilaiSikapController::class, 'store']);
+
+    // Bulk store nilai sikap untuk banyak siswa
+    Route::post('/kelas/{kelas_id}/nilai-sikap/bulk', [NilaiSikapController::class, 'bulkStore']);
+
+    // Delete nilai sikap
+    Route::delete('/kelas/{kelas_id}/nilai-sikap/{id}', [NilaiSikapController::class, 'destroy']);
+
+    // ===========================
+    // KETIDAKHADIRAN
+    // ===========================
+
+    // Get semua ketidakhadiran di kelas (per semester)
+    Route::get('/kelas/{kelas_id}/ketidakhadiran', [KetidakhadiranController::class, 'index']);
+
+    // Store/Update satu ketidakhadiran siswa
+    Route::post('/kelas/{kelas_id}/ketidakhadiran', [KetidakhadiranController::class, 'store']);
+
+    // Bulk store ketidakhadiran untuk banyak siswa
+    Route::post('/kelas/{kelas_id}/ketidakhadiran/bulk', [KetidakhadiranController::class, 'bulkStore']);
+
+    // Increment ketidakhadiran (tambah 1 ijin/sakit/alpa)
+    Route::post('/kelas/{kelas_id}/ketidakhadiran/{siswa_id}/increment', [KetidakhadiranController::class, 'increment']);
+
+    // Delete ketidakhadiran
+    Route::delete('/kelas/{kelas_id}/ketidakhadiran/{id}', [KetidakhadiranController::class, 'destroy']);
 });
 
 /**
@@ -102,7 +161,7 @@ Route::prefix('admin')->middleware(['auth:api', 'is_admin'])->group(function () 
     Route::post('/siswa/{id}', [AdminUserController::class, 'updateSiswa']);
     Route::delete('/siswa/{id}', [AdminUserController::class, 'deleteSiswa']);
     Route::get('/guru/{id}', [AdminUserController::class, 'showGuru']);
-    Route::post('/guru/{id}', [AdminUserController::class, 'updateGuru']); // update via POST (you used same pattern for siswa)
+    Route::post('/guru/{id}', [AdminUserController::class, 'updateGuru']);
     Route::delete('/guru/{id}', [AdminUserController::class, 'deleteGuru']);
 
     // ===========================
@@ -162,6 +221,22 @@ Route::prefix('admin')->middleware(['auth:api', 'is_admin'])->group(function () 
     // Copy & Bulk operations
     Route::post('/kelas/{kelas_id}/mapel/copy-from/{source_kelas_id}', [KelasMapelController::class, 'copyFrom']); // Copy dari kelas lain
     Route::post('/kelas-mapel/bulk-assign', [KelasMapelController::class, 'bulkAssign']); // Assign ke multiple kelas sekaligus
+
+    // Get all activity logs dengan filter
+    Route::get('/activity-logs', [ActivityLogController::class, 'index']);
+
+    // Get statistics
+    Route::get('/activity-logs/stats', [ActivityLogController::class, 'stats']);
+
+    // Get detail activity log
+    Route::get('/activity-logs/{id}', [ActivityLogController::class, 'show']);
+
+    // Get activity logs by user
+    Route::get('/activity-logs/user/{userId}', [ActivityLogController::class, 'userActivity']);
+
+    // MONITORING NILAI AKHIR
+    Route::get('/nilai-akhir/monitoring', [NilaiMonitoringController::class, 'monitoring']);
+    Route::get('/nilai-akhir/monitoring/kelas/{kelas_id}/missing', [NilaiMonitoringController::class, 'missingDetail']);
 });
 
 /**
@@ -173,19 +248,20 @@ Route::prefix('admin')->middleware(['auth:api', 'is_admin'])->group(function () 
  */
 // Public access to view jadwals
 Route::middleware(['can.view.jadwal'])->group(function () {
-    Route::get('/kelas/{kelas_id}/jadwals', [JadwalController::class, 'index']);
-    Route::get('/kelas/{kelas_id}/jadwals/{id}', [JadwalController::class, 'show']);
+   Route::get('/kelas/{kelas_id}/jadwal', [JadwalController::class, 'index']);
 });
 
 // Protected CRUD (file upload supported on store & update)
 Route::middleware(['auth:api', 'wali.kelas'])->group(function () {
-    Route::post('/kelas/{kelas_id}/jadwals', [JadwalController::class, 'store']);          // Create (file upload)
-    Route::post('/kelas/{kelas_id}/jadwals/{id}', [JadwalController::class, 'update']);    // Update (file upload supported)
-    Route::delete('/kelas/{kelas_id}/jadwals/{id}', [JadwalController::class, 'destroy']); // Delete
+     Route::post('/kelas/{kelas_id}/jadwal', [JadwalController::class, 'store']);
+    Route::put('/kelas/{kelas_id}/jadwal/{id}', [JadwalController::class, 'update']);
+    Route::delete('/kelas/{kelas_id}/jadwal/{id}', [JadwalController::class, 'destroy']);
+
 
     // Template download & import nilai
     Route::get('/kelas/{kelas_id}/semester/{semester_id}/download-template', [TemplateController::class, 'downloadTemplate']);
     Route::post('/kelas/{kelas_id}/semester/{semester_id}/import-nilai', [ImportNilaiController::class, 'import']);
+
 });
 
     /**
@@ -208,14 +284,10 @@ Route::middleware(['auth:api', 'wali.kelas'])->group(function () {
     Route::get('/kelas/{kelas_id}/siswa', [PublicKelasController::class, 'siswaByKelas']);
 
 
-Route::middleware(['auth:api', 'role:admin,guru'])->group(function () {
-    Route::post('/beritas', [BeritaController::class, 'store']);
-    Route::post('/beritas/{id}', [BeritaController::class, 'update']);
-    Route::delete('/beritas/{id}', [BeritaController::class, 'destroy']);
-    Route::post('/galleries', [GalleryController::class, 'store']);
-    Route::post('/galleries/{id}', [GalleryController::class, 'update']); // or use PUT/PATCH
-    Route::delete('/galleries/{id}', [GalleryController::class, 'destroy']);
-});
+    // Route public untuk melihat mapel per kelas (bisa diakses tanpa auth)
+    Route::get('kelas/{kelas_id}/mapel', [KelasMapelController::class, 'index']);
+
+
 
 /**
  * -------------------------
@@ -227,6 +299,10 @@ Route::middleware(['auth:siswa'])->group(function () {
     Route::get('/siswa/me/nilai', [SiswaNilaiController::class, 'index']);
     Route::get('/siswa/me/nilai/semester/{semester_id}', [SiswaNilaiController::class, 'bySemester']);
     Route::get('/siswa/me/nilai/{id}', [SiswaNilaiController::class, 'show']);
+    // Nilai sikap siswa
+    Route::get('/siswa/me/nilai-sikap', [NilaiSikapController::class, 'siswaNilaiSikap']);
+    // Ketidakhadiran siswa
+    Route::get('/siswa/me/ketidakhadiran', [KetidakhadiranController::class, 'siswaKetidakhadiran']);
 });
 
 /**
@@ -235,9 +311,48 @@ Route::middleware(['auth:siswa'])->group(function () {
  * -------------------------
  */
 Route::prefix('admin')->middleware(['auth:api', 'role:admin,guru'])->group(function () {
+
     Route::get('/siswa/{siswa_id}/nilai', [AdminSiswaNilaiController::class, 'index']);
     Route::get('/siswa/{siswa_id}/nilai/semester/{semester_id}', [AdminSiswaNilaiController::class, 'bySemester']);
     Route::get('/siswa/{siswa_id}/nilai/{nilai_id}', [AdminSiswaNilaiController::class, 'show']);
+
+    // Get nilai sikap siswa tertentu (semua semester)
+    Route::get('/siswa/{siswa_id}/nilai-sikap', function($siswa_id) {
+        $siswa = \App\Models\Siswa::findOrFail($siswa_id);
+        $nilaiSikap = \App\Models\NilaiSikap::with(['semester.tahunAjaran', 'inputByGuru'])
+            ->where('siswa_id', $siswa_id)
+            ->orderByDesc('tahun_ajaran_id')
+            ->orderByDesc('semester_id')
+            ->get();
+
+        return response()->json([
+            'siswa' => [
+                'id' => $siswa->id,
+                'nama' => $siswa->nama,
+                'kelas' => $siswa->kelas ? $siswa->kelas->nama : null,
+            ],
+            'data' => $nilaiSikap
+        ]);
+    });
+
+    // Get ketidakhadiran siswa tertentu (semua semester)
+    Route::get('/siswa/{siswa_id}/ketidakhadiran', function($siswa_id) {
+        $siswa = \App\Models\Siswa::findOrFail($siswa_id);
+        $ketidakhadiran = \App\Models\Ketidakhadiran::with(['semester.tahunAjaran', 'inputByGuru'])
+            ->where('siswa_id', $siswa_id)
+            ->orderByDesc('tahun_ajaran_id')
+            ->orderByDesc('semester_id')
+            ->get();
+
+        return response()->json([
+            'siswa' => [
+                'id' => $siswa->id,
+                'nama' => $siswa->nama,
+                'kelas' => $siswa->kelas ? $siswa->kelas->nama : null,
+            ],
+            'data' => $ketidakhadiran
+        ]);
+    });
 });
 
 
@@ -248,6 +363,7 @@ Route::prefix('admin')->middleware(['auth:api', 'role:admin,guru'])->group(funct
  */
 // Get tahun ajaran aktif - bisa diakses tanpa auth atau dengan auth
 Route::get('/tahun-ajaran/active', [TahunAjaranController::class, 'getActive']);
+Route::get('/tahun-ajaran/{id}/semester', [TahunAjaranController::class, 'getSemestersByTahunAjaran']);
 
 /**
  * -------------------------
@@ -266,4 +382,75 @@ Route::prefix('admin')->middleware(['auth:api', 'is_admin'])->group(function () 
     Route::post('/semester/{id}/toggle-active', [TahunAjaranController::class, 'toggleSemester']);
 
     Route::get('/guru', [AdminUserController::class, 'indexGuru']);
+
+});
+
+
+/**
+ * ========================================
+ * TRASH MANAGEMENT (Soft Delete)
+ * Admin only - untuk manage data yang sudah dihapus
+ * ========================================
+ */
+Route::prefix('admin/trash')->middleware(['auth:api', 'is_admin'])->group(function () {
+
+    // Dashboard trash
+    Route::get('/stats', [TrashController::class, 'stats']);
+
+    // Bulk operations
+    Route::post('/bulk-restore', [TrashController::class, 'bulkRestore']);
+
+    // ===========================
+    // USERS TRASH
+    // ===========================
+    Route::get('/users', [TrashController::class, 'indexUsers']);
+    Route::post('/users/{id}/restore', [TrashController::class, 'restoreUser']);
+    Route::delete('/users/{id}/force', [TrashController::class, 'forceDeleteUser']);
+
+    // ===========================
+    // SISWA TRASH
+    // ===========================
+    Route::get('/siswa', [TrashController::class, 'indexSiswa']);
+    Route::post('/siswa/{id}/restore', [TrashController::class, 'restoreSiswa']);
+    Route::delete('/siswa/{id}/force', [TrashController::class, 'forceDeleteSiswa']);
+
+    // ===========================
+    // KELAS TRASH
+    // ===========================
+    Route::get('/kelas', [TrashController::class, 'indexKelas']);
+    Route::post('/kelas/{id}/restore', [TrashController::class, 'restoreKelas']);
+    Route::delete('/kelas/{id}/force', [TrashController::class, 'forceDeleteKelas']);
+});
+
+Route::middleware(['auth:api', 'is_admin_or_guru'])->group(function () {
+    Route::post('/beritas', [BeritaController::class, 'store']);
+    Route::post('/beritas/{id}', [BeritaController::class, 'update']);
+    Route::put('/beritas/{id}', [BeritaController::class, 'update']);
+    Route::delete('/beritas/{id}', [BeritaController::class, 'destroy']);
+    Route::post('/galleries', [GalleryController::class, 'store']);
+    Route::put('/galleries/{id}', [GalleryController::class, 'update']);
+    Route::delete('/galleries/{id}', [GalleryController::class, 'destroy']);
+
+    Route::prefix('kelas/{kelas_id}')->group(function () {
+
+        Route::get('struktur-nilai', [StrukturNilaiMapelController::class, 'index']);
+        Route::post('struktur-nilai', [StrukturNilaiMapelController::class, 'store']);
+        Route::get('struktur-nilai/{id}', [StrukturNilaiMapelController::class, 'show']);
+        Route::put('struktur-nilai/{id}', [StrukturNilaiMapelController::class, 'update']);
+        Route::delete('struktur-nilai/{id}', [StrukturNilaiMapelController::class, 'destroy']);
+        Route::get('struktur-nilai/mapel/{mapel_id}/semester/{semester_id}', [StrukturNilaiMapelController::class, 'getByMapel']);
+
+        Route::get('semester/{semester_id}/available-mapels', [StrukturNilaiMapelController::class, 'getAvailableMapels']);
+        Route::get('struktur-nilai/{id}/nilai-count', [StrukturNilaiMapelController::class, 'getNilaiCount']);
+
+        Route::post('struktur-nilai/{struktur_id}/nilai-detail/single', [NilaiDetailController::class, 'storeSingle']);
+        Route::post('struktur-nilai/{struktur_id}/nilai-detail/bulk', [NilaiDetailController::class, 'storeBulk']);
+        Route::get('struktur-nilai/{struktur_id}/nilai-detail', [NilaiDetailController::class, 'index']);
+        Route::get('struktur-nilai/{struktur_id}/progress', [NilaiDetailController::class, 'getProgress']);
+        Route::post('struktur-nilai/{struktur_id}/generate-nilai-akhir', [NilaiDetailController::class, 'generateNilaiAkhir']);
+        Route::get('struktur-nilai/{struktur_id}/siswa/{siswa_id}', [NilaiDetailController::class, 'getSiswaDetail']);
+    });
+
+     Route::get('kelas/{kelas_id}/mapel', [KelasMapelController::class, 'index']);
+
 });

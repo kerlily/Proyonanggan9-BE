@@ -5,12 +5,17 @@ namespace App\Models;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use Tymon\JWTAuth\Contracts\JWTSubject;
 use Illuminate\Support\Facades\Hash;
+use App\Traits\LogsActivity;
 
 class User extends Authenticatable implements JWTSubject
 {
-    use HasFactory, Notifiable;
+    use HasFactory, Notifiable, LogsActivity, SoftDeletes;
+
+    protected static $logAttributes = ['name', 'email', 'role'];
+    protected static $logName = 'users';
 
     protected $table = 'users';
 
@@ -18,7 +23,7 @@ class User extends Authenticatable implements JWTSubject
         'name',
         'email',
         'password',
-        'role', // admin | guru
+        'role',
     ];
 
     protected $hidden = [
@@ -26,14 +31,16 @@ class User extends Authenticatable implements JWTSubject
         'remember_token',
     ];
 
-    // Hash password automatically
+    protected $casts = [
+        'deleted_at' => 'datetime',
+    ];
+
     public function setPasswordAttribute($value)
     {
         if ($value === null) return;
         $this->attributes['password'] = Hash::needsRehash($value) ? Hash::make($value) : $value;
     }
 
-    // JWTSubject
     public function getJWTIdentifier()
     {
         return $this->getKey();
@@ -44,7 +51,6 @@ class User extends Authenticatable implements JWTSubject
         return [];
     }
 
-    // helpers
     public function isAdmin(): bool
     {
         return $this->role === 'admin';
@@ -55,9 +61,12 @@ class User extends Authenticatable implements JWTSubject
         return $this->role === 'guru';
     }
 
-    // relations
     public function guru()
     {
         return $this->hasOne(Guru::class, 'user_id');
+    }
+    public function isDeleted(): bool
+    {
+        return $this->trashed();
     }
 }

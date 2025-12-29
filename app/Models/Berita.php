@@ -26,6 +26,15 @@ class Berita extends Model
         'published_at' => 'datetime',
     ];
 
+    // tambahkan image_url ke JSON
+    protected $appends = ['image_url'];
+
+    // sembunyikan path mentah jika mau (opsional tapi direkomendasikan)
+    protected $hidden = [
+        'image',
+        'created_by',
+    ];
+
     public function author()
     {
         return $this->belongsTo(\App\Models\User::class, 'created_by');
@@ -33,8 +42,12 @@ class Berita extends Model
 
     public function getImageUrlAttribute()
     {
-        return $this->image ? Storage::url($this->image) : null;
-    }
+        if (! $this->image) return null;
 
-    protected $appends = ['image_url'];
+        // cara yang sama dengan Gallery: pakai url('storage/...') → menghasilkan URL absolut
+        return url('storage/' . ltrim($this->image, '/'));
+
+        // alternatif lain:
+        // return asset(Storage::url($this->image));
+    }
 }

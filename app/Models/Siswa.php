@@ -5,12 +5,13 @@ namespace App\Models;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use Tymon\JWTAuth\Contracts\JWTSubject;
 use Illuminate\Support\Facades\Hash;
 
 class Siswa extends Authenticatable implements JWTSubject
 {
-    use HasFactory, Notifiable;
+    use HasFactory, Notifiable, SoftDeletes;
 
     protected $table = 'siswa';
 
@@ -24,31 +25,41 @@ class Siswa extends Authenticatable implements JWTSubject
 
     protected $hidden = [
         'password',
+        'created_at',
+        'updated_at',
     ];
 
     protected $casts = [
         'is_alumni' => 'boolean',
         'tahun_lahir' => 'integer',
+        'deleted_at' => 'datetime', // ✅ TAMBAH INI
     ];
 
-    // auto-hash student password (default is tahun_lahir)
     public function setPasswordAttribute($value)
     {
         if ($value === null) return;
-        $this->attributes['password'] = Hash::needsRehash($value) ? Hash::make($value) : $value;
+
+        if (strlen($value) === 60 && str_starts_with($value, '$2y$')) {
+            $this->attributes['password'] = $value;
+            return;
+        }
+
+        $this->attributes['password'] = Hash::make($value);
     }
 
-    // JWTSubject
     public function getJWTIdentifier()
     {
         return $this->getKey();
     }
+
     public function getJWTCustomClaims()
     {
-        return [];
+        return [
+            'role' => 'siswa',
+            'kelas_id' => $this->kelas_id,
+        ];
     }
 
-    // relations
     public function kelas()
     {
         return $this->belongsTo(Kelas::class);
@@ -58,16 +69,21 @@ class Siswa extends Authenticatable implements JWTSubject
     {
         return $this->hasMany(Nilai::class);
     }
-     // ADD THIS: Relationship to riwayat_kelas
+
     public function riwayatKelas()
     {
         return $this->hasMany(RiwayatKelas::class);
     }
-      // Helper method to get class for specific academic year
+
+    public function isDeleted(): bool
+    {
+        return $this->trashed();
+    }
+
     public function getKelasForTahunAjaran($tahunAjaranId)
     {
         return $this->riwayatKelas()
-            ->with('kelas')
+            ->with('kelas:id,nama,tingkat,section')
             ->where('tahun_ajaran_id', $tahunAjaranId)
             ->first()?->kelas;
     }
