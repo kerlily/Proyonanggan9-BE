@@ -157,6 +157,7 @@ class ImportNilaiController extends Controller
             $rawCatatan = trim((string)($row[$colForCatatan] ?? ''));
             $catatan = $rawCatatan === '' ? '-' : $rawCatatan;
 
+            // ✅ PROSES NILAI MAPEL (tetap di dalam loop mapel)
             foreach ($mapelCols as $col => $mapelHeader) {
                 $val = $row[$col] ?? null;
                 if ($val === null || $val === '') continue;
@@ -219,11 +220,14 @@ class ImportNilaiController extends Controller
                 }
             }
 
+            // ✅ PINDAHKAN KETIDAKHADIRAN KE LUAR LOOP MAPEL
+            // Diproses untuk setiap siswa, bukan per mapel
             if ($colForIjin || $colForSakit || $colForAlpa) {
                 $ijin = $colForIjin ? (int)($row[$colForIjin] ?? 0) : 0;
                 $sakit = $colForSakit ? (int)($row[$colForSakit] ?? 0) : 0;
                 $alpa = $colForAlpa ? (int)($row[$colForAlpa] ?? 0) : 0;
 
+                // Hanya simpan jika ada data ketidakhadiran
                 if ($ijin > 0 || $sakit > 0 || $alpa > 0) {
                     if (!$dryRun) {
                         try {
@@ -252,6 +256,8 @@ class ImportNilaiController extends Controller
                 }
             }
 
+            // ✅ PINDAHKAN NILAI SIKAP KE LUAR LOOP MAPEL
+            // Diproses untuk setiap siswa, bukan per mapel
             if ($colForNilaiSikap) {
                 $nilaiSikap = strtoupper(trim((string)($row[$colForNilaiSikap] ?? '')));
                 $deskripsiSikap = $colForDeskripsiSikap ? trim((string)($row[$colForDeskripsiSikap] ?? '')) : null;

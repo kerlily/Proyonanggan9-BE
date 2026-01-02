@@ -7,16 +7,6 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
-    /**
-     * Run the migrations.
-     *
-     * Menambahkan soft delete ke tabel-tabel penting:
-     * - users (guru/admin)
-     * - siswa
-     * - guru
-     * - kelas
-     * - nilai
-     */
     public function up(): void
     {
         // 1. Users (Guru/Admin)
