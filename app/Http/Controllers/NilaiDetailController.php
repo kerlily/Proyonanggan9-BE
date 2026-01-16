@@ -29,7 +29,6 @@ class NilaiDetailController extends Controller
 
         $nilaiData = [];
         foreach ($nilaiSiswa as $n) {
-            // ✅ FIXED: Format untuk frontend React
             if ($n->lm_key === null || $n->lm_key === "") {
                 // ASLIM/ASAS: simpan di root level
                 $nilaiData[$n->kolom_key] = $n->nilai;
@@ -61,7 +60,7 @@ class NilaiDetailController extends Controller
 
     $validated = $request->validate([
         'siswa_id' => 'required|integer|exists:siswa,id',
-        'lm_key' => 'nullable|string', // ✅ nullable untuk ASLIM/ASAS
+        'lm_key' => 'nullable|string',
         'kolom_key' => 'required|string',
         'nilai' => 'required|numeric|between:0,100',
     ]);
@@ -80,7 +79,7 @@ class NilaiDetailController extends Controller
             [
                 'siswa_id' => $validated['siswa_id'],
                 'struktur_nilai_mapel_id' => $struktur_id,
-                'lm_key' => $validated['lm_key'], // ✅ Bisa null
+                'lm_key' => $validated['lm_key'],
                 'kolom_key' => $validated['kolom_key'],
             ],
             [
@@ -117,7 +116,7 @@ public function storeBulk(Request $request, $kelas_id, $struktur_id)
     $validated = $request->validate([
         'data' => 'required|array',
         'data.*.siswa_id' => 'required|integer|exists:siswa,id',
-        'data.*.nilai_data' => 'required|array', // ✅ PASTIKAN INI ADA
+        'data.*.nilai_data' => 'required|array',
     ]);
 
     $saved = [];
@@ -303,9 +302,6 @@ foreach ($lingkup as $lm) {
         ]);
     }
 
-    /**
-     * ✅ FIXED: Generate nilai akhir dengan validasi lengkap dan sync dengan tabel nilai
-     */
      public function generateNilaiAkhir($kelas_id, $struktur_id)
     {
         $user = Auth::guard('api')->user();
@@ -550,7 +546,6 @@ foreach ($lingkup as $lm) {
 
         $result = $this->calculateNilaiAkhir($siswa_id, $struktur);
 
-        // ✅ Cek apakah nilai akhir sudah ada di tabel nilai
         $nilaiAkhir = Nilai::where('siswa_id', $siswa_id)
             ->where('mapel_id', $struktur->mapel_id)
             ->where('semester_id', $struktur->semester_id)

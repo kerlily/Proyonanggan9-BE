@@ -17,7 +17,6 @@ class StrukturNilaiMapelController extends Controller
 {
     $semesterId = $request->query('semester_id');
 
-    // ✅ PERUBAHAN: Support filter tahun ajaran dari query parameter
     $tahunId = $request->query('tahun_ajaran_id');
 
     // Kalau tidak ada filter, default ke tahun aktif
