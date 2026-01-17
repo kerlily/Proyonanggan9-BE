@@ -22,6 +22,9 @@ class CreateSiswaRequest extends FormRequest
             // ensure integer-ish
             $this->merge(['tahun_lahir' => (int)$this->input('tahun_lahir')]);
         }
+        if ($this->has('nisn')) {
+            $this->merge(['nisn' => trim($this->input('nisn'))]);
+        }
     }
 
     public function rules(): array
@@ -30,6 +33,7 @@ class CreateSiswaRequest extends FormRequest
 
         return [
             'nama' => ['required','string','max:255'],
+            'nisn' => ['nullable','string','max:20', 'unique:siswa,nisn'],
             'tahun_lahir' => ['required','integer','digits:4','min:1900','max:'.$currentYear],
             'kelas_id' => ['required','integer','exists:kelas,id'],
             'is_alumni' => ['nullable','boolean'],
@@ -41,6 +45,7 @@ class CreateSiswaRequest extends FormRequest
         return [
             'kelas_id.exists' => 'Kelas tidak ditemukan. Pilih kelas yang valid.',
             'tahun_lahir.digits' => 'Format tahun lahir harus YYYY (4 digit).',
+            'nisn.unique' => 'NISN sudah terdaftar. gunakan NISN lain.',
         ];
     }
 

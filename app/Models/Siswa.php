@@ -17,6 +17,7 @@ class Siswa extends Authenticatable implements JWTSubject
 
     protected $fillable = [
         'nama',
+        'nisn',
         'tahun_lahir',
         'password',
         'kelas_id',
@@ -32,7 +33,7 @@ class Siswa extends Authenticatable implements JWTSubject
     protected $casts = [
         'is_alumni' => 'boolean',
         'tahun_lahir' => 'integer',
-        'deleted_at' => 'datetime', // ✅ TAMBAH INI
+        'deleted_at' => 'datetime',
     ];
 
     public function setPasswordAttribute($value)

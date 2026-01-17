@@ -565,36 +565,35 @@ public function resetGuruPassword(Request $request, $id)
      * JSON body expected. Password default = tahun_lahir (hashed by Siswa model).
      */
     public function createSiswa(CreateSiswaRequest $request)
-    {
-        $data = $request->validated();
+{
+    $data = $request->validated();
 
-        DB::beginTransaction();
-        try {
-            $tahun_lahir = (int) $data['tahun_lahir'];
-            $password = (string) $tahun_lahir;
+    DB::beginTransaction();
+    try {
+        $tahun_lahir = (int) $data['tahun_lahir'];
+        $password = (string) $tahun_lahir;
 
-            $siswa = Siswa::create([
-                'nama' => $data['nama'],
-                'tahun_lahir' => $tahun_lahir,
-                'password' => $password, // Siswa model mutator will hash it
-                'kelas_id' => $data['kelas_id'],
-                'is_alumni' => $data['is_alumni'] ?? false,
-            ]);
+        $siswa = Siswa::create([
+            'nama' => $data['nama'],
+            'nisn' => $data['nisn'] ?? null, // ✅ TAMBAH NISN
+            'tahun_lahir' => $tahun_lahir,
+            'password' => $password,
+            'kelas_id' => $data['kelas_id'],
+            'is_alumni' => $data['is_alumni'] ?? false,
+        ]);
 
-            DB::commit();
+        DB::commit();
 
-            return response()->json([
-                'message' => 'Siswa created',
-                'siswa' => $siswa,
-                // send the raw password (tahun_lahir) so admin can inform siswa's guardian
-                'raw_password' => $password,
-            ], 201);
-        } catch (\Throwable $e) {
-            DB::rollBack();
-            return response()->json(['message' => 'Error creating siswa: '.$e->getMessage()], 500);
-        }
+        return response()->json([
+            'message' => 'Siswa created',
+            'siswa' => $siswa,
+            'raw_password' => $password,
+        ], 201);
+    } catch (\Throwable $e) {
+        DB::rollBack();
+        return response()->json(['message' => 'Error creating siswa: '.$e->getMessage()], 500);
     }
-
+}
     /**
  * Update Siswa
  * FIXED: Hanya field yang ada di table siswa
@@ -609,6 +608,7 @@ public function updateSiswa(Request $request, $id)
     // Validasi - HANYA field yang ada di table siswa
     $validated = $request->validate([
         'nama' => 'sometimes|string|max:255',
+        'nisn' => 'sometimes|nullable|string|max:20|unique:siswa,nisn,' . $id,
         'tahun_lahir' => 'sometimes|integer|min:1900|max:'.(date('Y')),
         'kelas_id' => 'sometimes|nullable|exists:kelas,id',
         'is_alumni' => 'sometimes|boolean',
@@ -698,16 +698,18 @@ public function indexSiswa(Request $request)
     $sortBy = $request->query('sort_by', 'nama');
     $sortDir = strtolower($request->query('sort_dir', 'asc')) === 'desc' ? 'desc' : 'asc';
 
-    // ✅ TAMBAH: Option untuk include deleted
     $includeTrashed = $request->query('include_trashed', false);
 
-    // ✅ MODIFIKASI: Support query trashed data
+    // ✅ FIX: Exclude soft deleted siswa by default
     $query = $includeTrashed
         ? Siswa::withTrashed()->with(['kelas'])
-        : Siswa::query()->with(['kelas']);
+        : Siswa::query()->with(['kelas']); // Otomatis exclude yang deleted
 
     if ($search) {
-        $query->where('nama', 'like', "%{$search}%");
+        $query->where(function($q) use ($search) {
+            $q->where('nama', 'like', "%{$search}%")
+              ->orWhere('nisn', 'like', "%{$search}%"); // ✅ Search by NISN juga
+        });
     }
 
     if ($kelasId) {
@@ -718,7 +720,7 @@ public function indexSiswa(Request $request)
         $query->where('is_alumni', (bool) $isAlumni);
     }
 
-    $allowedSort = ['id', 'nama', 'tahun_lahir', 'is_alumni', 'kelas_id', 'created_at', 'updated_at'];
+    $allowedSort = ['id', 'nama', 'nisn', 'tahun_lahir', 'is_alumni', 'kelas_id', 'created_at', 'updated_at'];
     if (!in_array($sortBy, $allowedSort)) {
         $sortBy = 'nama';
     }
@@ -732,19 +734,16 @@ public function indexSiswa(Request $request)
 public function showSiswa($id)
 {
     $siswa = Siswa::with([
-        // Load relasi nilai dengan order yang benar
         'nilai' => function($q) {
             $q->with(['mapel', 'semester', 'tahunAjaran', 'inputByGuru'])
               ->orderByDesc('tahun_ajaran_id')
-              ->orderByDesc('semester_id') // FIXED: semester_id bukan semester
+              ->orderByDesc('semester_id')
               ->orderBy('mapel_id');
         },
-        // Load riwayat kelas dengan kelas dan tahun ajaran
         'riwayatKelas' => function($q) {
             $q->with(['kelas', 'tahunAjaran'])
               ->orderByDesc('tahun_ajaran_id');
         },
-        // Load kelas saat ini
         'kelas'
     ])->find($id);
 
@@ -752,7 +751,6 @@ public function showSiswa($id)
         return response()->json(['message' => 'Siswa not found'], 404);
     }
 
-    // Group nilai by tahun ajaran & semester untuk response yang lebih terstruktur
     $nilaiGrouped = $siswa->nilai->groupBy(function($n) {
         return $n->tahun_ajaran_id . '_' . $n->semester_id;
     })->map(function($items) {
@@ -786,7 +784,6 @@ public function showSiswa($id)
         ];
     })->values();
 
-    // Hitung statistik
     $meta = [
         'total_nilai' => $siswa->nilai ? $siswa->nilai->count() : 0,
         'riwayat_count' => $siswa->riwayatKelas ? $siswa->riwayatKelas->count() : 0,
@@ -802,6 +799,7 @@ public function showSiswa($id)
         'siswa' => [
             'id' => $siswa->id,
             'nama' => $siswa->nama,
+            'nisn' => $siswa->nisn, // ✅ TAMBAH NISN
             'tahun_lahir' => $siswa->tahun_lahir,
             'is_alumni' => $siswa->is_alumni,
             'kelas_id' => $siswa->kelas_id,

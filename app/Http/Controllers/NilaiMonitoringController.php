@@ -84,10 +84,12 @@ class NilaiMonitoringController extends Controller
                 continue;
             }
 
-            // Get total siswa di kelas (dari riwayat_kelas atau siswa aktif)
+            // ✅ FIX: Get total siswa di kelas (exclude soft deleted)
             $totalSiswa = DB::table('riwayat_kelas')
-                ->where('kelas_id', $kelas->id)
-                ->where('tahun_ajaran_id', $tahunAjaranId)
+                ->join('siswa', 'riwayat_kelas.siswa_id', '=', 'siswa.id')
+                ->where('riwayat_kelas.kelas_id', $kelas->id)
+                ->where('riwayat_kelas.tahun_ajaran_id', $tahunAjaranId)
+                ->whereNull('siswa.deleted_at') // ⭐ EXCLUDE SOFT DELETED
                 ->count();
 
             // Jika tidak ada riwayat, pakai siswa yang aktif sekarang
@@ -95,6 +97,7 @@ class NilaiMonitoringController extends Controller
                 $totalSiswa = DB::table('siswa')
                     ->where('kelas_id', $kelas->id)
                     ->where('is_alumni', false)
+                    ->whereNull('deleted_at') // ⭐ EXCLUDE SOFT DELETED
                     ->count();
             }
 
@@ -106,10 +109,11 @@ class NilaiMonitoringController extends Controller
             // Expected total nilai = siswa x mapel
             $nilaiExpected = $totalSiswa * $totalMapel;
 
-            // Get total nilai yang sudah terisi
+            // ✅ FIX: Get total nilai yang sudah terisi (exclude soft deleted siswa)
             $nilaiTerisi = DB::table('nilai')
                 ->join('siswa', 'nilai.siswa_id', '=', 'siswa.id')
                 ->where('siswa.kelas_id', $kelas->id)
+                ->whereNull('siswa.deleted_at') // ⭐ EXCLUDE SOFT DELETED
                 ->where('nilai.semester_id', $semesterId)
                 ->where('nilai.tahun_ajaran_id', $tahunAjaranId)
                 ->whereNotNull('nilai.nilai')
@@ -147,9 +151,11 @@ class NilaiMonitoringController extends Controller
                     ->get();
 
                 foreach ($mapels as $mapel) {
+                    // ✅ FIX: Hitung nilai per mapel (exclude soft deleted siswa)
                     $nilaiMapelCount = DB::table('nilai')
                         ->join('siswa', 'nilai.siswa_id', '=', 'siswa.id')
                         ->where('siswa.kelas_id', $kelas->id)
+                        ->whereNull('siswa.deleted_at') // ⭐ EXCLUDE SOFT DELETED
                         ->where('nilai.mapel_id', $mapel->id)
                         ->where('nilai.semester_id', $semesterId)
                         ->where('nilai.tahun_ajaran_id', $tahunAjaranId)
@@ -267,12 +273,13 @@ class NilaiMonitoringController extends Controller
 
         $mapelIdFilter = $request->query('mapel_id');
 
-        // Get siswa di kelas
+        // ✅ FIX: Get siswa di kelas (exclude soft deleted)
         $siswaList = DB::table('siswa')
             ->where('kelas_id', $kelas_id)
             ->where('is_alumni', false)
+            ->whereNull('deleted_at') // ⭐ EXCLUDE SOFT DELETED
             ->orderBy('nama')
-            ->get(['id', 'nama']);
+            ->get(['id', 'nama', 'nisn']); // ✅ Include NISN
 
         // Get mapel kelas
         $mapelQuery = DB::table('kelas_mapel')
@@ -285,12 +292,14 @@ class NilaiMonitoringController extends Controller
 
         $mapelList = $mapelQuery->get(['mapel.id', 'mapel.nama', 'mapel.kode']);
 
-        // Get nilai yang sudah ada
+        // ✅ FIX: Get nilai yang sudah ada (exclude soft deleted siswa)
         $nilaiExisting = DB::table('nilai')
-            ->where('semester_id', $semesterId)
-            ->where('tahun_ajaran_id', $tahunAjaranId)
-            ->whereIn('siswa_id', $siswaList->pluck('id'))
-            ->get(['siswa_id', 'mapel_id', 'nilai'])
+            ->join('siswa', 'nilai.siswa_id', '=', 'siswa.id')
+            ->where('nilai.semester_id', $semesterId)
+            ->where('nilai.tahun_ajaran_id', $tahunAjaranId)
+            ->whereNull('siswa.deleted_at') // ⭐ EXCLUDE SOFT DELETED
+            ->whereIn('nilai.siswa_id', $siswaList->pluck('id'))
+            ->get(['nilai.siswa_id', 'nilai.mapel_id', 'nilai.nilai'])
             ->groupBy('siswa_id');
 
         $result = [];
@@ -315,6 +324,7 @@ class NilaiMonitoringController extends Controller
                 $result[] = [
                     'siswa_id' => $siswa->id,
                     'siswa_nama' => $siswa->nama,
+                    'siswa_nisn' => $siswa->nisn, // ✅ TAMBAH NISN
                     'nilai_terisi' => $nilaiSiswa->count(),
                     'nilai_expected' => $mapelList->count(),
                     'mapel_missing' => $mapelMissing,

@@ -21,7 +21,10 @@ class NilaiDetailController extends Controller
         ->where('struktur_nilai_mapel_id', $struktur_id)
         ->get();
 
-    $siswaList = DB::table('siswa')->where('kelas_id', $kelas_id)->get(['id', 'nama']);
+    $siswaList = DB::table('siswa')
+        ->where('kelas_id', $kelas_id)
+        ->whereNull('deleted_at')
+        ->get(['id', 'nama']);
 
     $grouped = [];
     foreach ($siswaList as $siswa) {
@@ -236,72 +239,73 @@ public function storeBulk(Request $request, $kelas_id, $struktur_id)
     }
 }
 
-        public function getProgress($kelas_id, $struktur_id)
-    {
-        $struktur = StrukturNilaiMapel::where('kelas_id', $kelas_id)
-            ->with(['mapel', 'semester'])
-            ->findOrFail($struktur_id);
+     public function getProgress($kelas_id, $struktur_id)
+{
+    $struktur = StrukturNilaiMapel::where('kelas_id', $kelas_id)
+        ->with(['mapel', 'semester'])
+        ->findOrFail($struktur_id);
 
-        $siswaList = DB::table('siswa')->where('kelas_id', $kelas_id)->orderBy('nama')->get();
+    $siswaList = DB::table('siswa')
+        ->where('kelas_id', $kelas_id)
+        ->whereNull('deleted_at')
+        ->orderBy('nama')
+        ->get();
 
-        // Hitung total kolom yang harus diisi
-        $lingkup = $struktur->struktur['lingkup_materi'] ?? [];
+    $lingkup = $struktur->struktur['lingkup_materi'] ?? [];
 
-$totalKolom = 0;
-foreach ($lingkup as $lm) {
-    $formatif = $lm['formatif'] ?? [];
-    $totalKolom += count($formatif);
-}
-        $totalKolom += 2; // +ASLIM +ASAS
+    $totalKolom = 0;
+    foreach ($lingkup as $lm) {
+        $formatif = $lm['formatif'] ?? [];
+        $totalKolom += count($formatif);
+    }
+    $totalKolom += 2; // +ASLIM +ASAS
 
-        $progress = [];
+    $progress = [];
 
-        foreach ($siswaList as $siswa) {
-            $nilaiCount = NilaiDetail::where('siswa_id', $siswa->id)
-                ->where('struktur_nilai_mapel_id', $struktur_id)
-                ->count();
+    foreach ($siswaList as $siswa) {
+        $nilaiCount = NilaiDetail::where('siswa_id', $siswa->id)
+            ->where('struktur_nilai_mapel_id', $struktur_id)
+            ->count();
 
-            $percentage = $totalKolom > 0 ? round(($nilaiCount / $totalKolom) * 100) : 0;
+        $percentage = $totalKolom > 0 ? round(($nilaiCount / $totalKolom) * 100) : 0;
 
-            $progress[] = [
-                'siswa_id' => $siswa->id,
-                'siswa_nama' => $siswa->nama,
-                'nilai_terisi' => $nilaiCount,
-                'total_kolom' => $totalKolom,
-                'percentage' => $percentage,
-                'status' => $percentage == 100 ? 'complete' : ($percentage > 0 ? 'partial' : 'empty')
-            ];
-        }
-
-        // Summary
-        $complete = collect($progress)->where('status', 'complete')->count();
-        $partial = collect($progress)->where('status', 'partial')->count();
-        $empty = collect($progress)->where('status', 'empty')->count();
-
-        return response()->json([
-            'kelas' => [
-                'id' => $kelas_id,
-                'nama' => DB::table('kelas')->where('id', $kelas_id)->value('nama')
-            ],
-            'struktur' => [
-                'id' => $struktur->id,
-                'mapel' => $struktur->mapel->nama,
-                'semester' => $struktur->semester->nama,
-                'total_kolom' => $totalKolom
-            ],
-            'summary' => [
-                'total_siswa' => $siswaList->count(),
-                'complete' => $complete,
-                'partial' => $partial,
-                'empty' => $empty,
-                'completion_rate' => $siswaList->count() > 0
-                    ? round(($complete / $siswaList->count()) * 100)
-                    : 0
-            ],
-            'progress' => $progress
-        ]);
+        $progress[] = [
+            'siswa_id' => $siswa->id,
+            'siswa_nama' => $siswa->nama,
+            'nilai_terisi' => $nilaiCount,
+            'total_kolom' => $totalKolom,
+            'percentage' => $percentage,
+            'status' => $percentage == 100 ? 'complete' : ($percentage > 0 ? 'partial' : 'empty')
+        ];
     }
 
+    $complete = collect($progress)->where('status', 'complete')->count();
+    $partial = collect($progress)->where('status', 'partial')->count();
+    $empty = collect($progress)->where('status', 'empty')->count();
+
+    return response()->json([
+        'kelas' => [
+            'id' => $kelas_id,
+            'nama' => DB::table('kelas')->where('id', $kelas_id)->value('nama')
+        ],
+        'struktur' => [
+            'id' => $struktur->id,
+            'mapel' => $struktur->mapel->nama,
+            'semester' => $struktur->semester->nama,
+            'total_kolom' => $totalKolom
+        ],
+        'summary' => [
+            'total_siswa' => $siswaList->count(),
+            'complete' => $complete,
+            'partial' => $partial,
+            'empty' => $empty,
+            'completion_rate' => $siswaList->count() > 0
+                ? round(($complete / $siswaList->count()) * 100)
+                : 0
+        ],
+        'progress' => $progress
+    ]);
+}
      public function generateNilaiAkhir($kelas_id, $struktur_id)
     {
         $user = Auth::guard('api')->user();
@@ -320,7 +324,10 @@ foreach ($lingkup as $lm) {
             ], 422);
         }
 
-        $siswaList = DB::table('siswa')->where('kelas_id', $kelas_id)->get(['id', 'nama']);
+        $siswaList = DB::table('siswa')
+            ->where('kelas_id', $kelas_id)
+            ->whereNull('deleted_at')
+            ->get(['id', 'nama']);
 
         $summary = [
             'success' => 0,

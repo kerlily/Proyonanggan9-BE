@@ -14,6 +14,7 @@ class TemplateController extends Controller
     {
         $siswaList = DB::table('siswa')
             ->where('kelas_id', $kelas_id)
+            ->whereNull('deleted_at')
             ->orderBy('nama')
             ->get(['nama']);
 

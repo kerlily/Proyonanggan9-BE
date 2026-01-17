@@ -61,6 +61,7 @@ class NilaiSikapController extends Controller
             return [
                 'siswa_id' => $siswa->id,
                 'nama' => $siswa->nama,
+                'nisn' => $siswa->nisn,
                 'nilai_sikap_id' => $nilai ? $nilai->id : null,
                 'nilai' => $nilai ? $nilai->nilai : null,
                 'nilai_label' => $nilai ? $nilai->nilai_label : null,
