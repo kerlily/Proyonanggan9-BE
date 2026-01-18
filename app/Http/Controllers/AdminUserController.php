@@ -575,7 +575,7 @@ public function resetGuruPassword(Request $request, $id)
 
         $siswa = Siswa::create([
             'nama' => $data['nama'],
-            'nisn' => $data['nisn'] ?? null, // ✅ TAMBAH NISN
+            'nisn' => $data['nisn'] ?? null,
             'tahun_lahir' => $tahun_lahir,
             'password' => $password,
             'kelas_id' => $data['kelas_id'],
@@ -694,13 +694,13 @@ public function indexSiswa(Request $request)
     $perPage = (int) $request->query('per_page', 15);
     $search = $request->query('search', null);
     $kelasId = $request->query('kelas_id', null);
+    $kelasNull = $request->query('kelas_null', false);
     $isAlumni = $request->query('is_alumni', null);
     $sortBy = $request->query('sort_by', 'nama');
     $sortDir = strtolower($request->query('sort_dir', 'asc')) === 'desc' ? 'desc' : 'asc';
 
     $includeTrashed = $request->query('include_trashed', false);
 
-    // ✅ FIX: Exclude soft deleted siswa by default
     $query = $includeTrashed
         ? Siswa::withTrashed()->with(['kelas'])
         : Siswa::query()->with(['kelas']); // Otomatis exclude yang deleted
@@ -708,8 +708,12 @@ public function indexSiswa(Request $request)
     if ($search) {
         $query->where(function($q) use ($search) {
             $q->where('nama', 'like', "%{$search}%")
-              ->orWhere('nisn', 'like', "%{$search}%"); // ✅ Search by NISN juga
+              ->orWhere('nisn', 'like', "%{$search}%");
         });
+    }
+
+    if ($kelasNull) {
+        $query->whereNull('kelas_id');
     }
 
     if ($kelasId) {
@@ -799,7 +803,7 @@ public function showSiswa($id)
         'siswa' => [
             'id' => $siswa->id,
             'nama' => $siswa->nama,
-            'nisn' => $siswa->nisn, // ✅ TAMBAH NISN
+            'nisn' => $siswa->nisn,
             'tahun_lahir' => $siswa->tahun_lahir,
             'is_alumni' => $siswa->is_alumni,
             'kelas_id' => $siswa->kelas_id,

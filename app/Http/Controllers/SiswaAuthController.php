@@ -71,6 +71,7 @@ class SiswaAuthController extends Controller
                 'data' => [
                     'id' => $siswa->id,
                     'nama' => $siswa->nama,
+                    'nisn' => $siswa->nisn,
                     'tahun_lahir' => $siswa->tahun_lahir,
                     'kelas_id' => $siswa->kelas_id,
                     'is_alumni' => $siswa->is_alumni,

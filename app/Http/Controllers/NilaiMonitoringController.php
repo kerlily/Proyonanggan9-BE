@@ -46,7 +46,7 @@ class NilaiMonitoringController extends Controller
         // Filters
         $kelasIdFilter = $request->query('kelas_id');
         $guruIdFilter = $request->query('guru_id');
-        $completionBelow = $request->query('completion_below'); // misal: 50 (untuk < 50%)
+        $completionBelow = $request->query('completion_below');
 
         // Get semua kelas
         $kelasQuery = Kelas::query();
@@ -84,12 +84,12 @@ class NilaiMonitoringController extends Controller
                 continue;
             }
 
-            // ✅ FIX: Get total siswa di kelas (exclude soft deleted)
+            // ✅ Get total siswa AKTIF di kelas (exclude soft deleted)
             $totalSiswa = DB::table('riwayat_kelas')
                 ->join('siswa', 'riwayat_kelas.siswa_id', '=', 'siswa.id')
                 ->where('riwayat_kelas.kelas_id', $kelas->id)
                 ->where('riwayat_kelas.tahun_ajaran_id', $tahunAjaranId)
-                ->whereNull('siswa.deleted_at') // ⭐ EXCLUDE SOFT DELETED
+                ->whereNull('siswa.deleted_at')
                 ->count();
 
             // Jika tidak ada riwayat, pakai siswa yang aktif sekarang
@@ -97,7 +97,7 @@ class NilaiMonitoringController extends Controller
                 $totalSiswa = DB::table('siswa')
                     ->where('kelas_id', $kelas->id)
                     ->where('is_alumni', false)
-                    ->whereNull('deleted_at') // ⭐ EXCLUDE SOFT DELETED
+                    ->whereNull('deleted_at')
                     ->count();
             }
 
@@ -109,19 +109,19 @@ class NilaiMonitoringController extends Controller
             // Expected total nilai = siswa x mapel
             $nilaiExpected = $totalSiswa * $totalMapel;
 
-            // ✅ FIX: Get total nilai yang sudah terisi (exclude soft deleted siswa)
+            // ✅ Get total nilai yang sudah terisi (HANYA untuk siswa yang AKTIF)
             $nilaiTerisi = DB::table('nilai')
                 ->join('siswa', 'nilai.siswa_id', '=', 'siswa.id')
                 ->where('siswa.kelas_id', $kelas->id)
-                ->whereNull('siswa.deleted_at') // ⭐ EXCLUDE SOFT DELETED
+                ->whereNull('siswa.deleted_at')
                 ->where('nilai.semester_id', $semesterId)
                 ->where('nilai.tahun_ajaran_id', $tahunAjaranId)
                 ->whereNotNull('nilai.nilai')
                 ->count();
 
-            // Hitung completion rate
+            // ✅ Hitung completion rate dengan cap di 100%
             $completionRate = $nilaiExpected > 0
-                ? round(($nilaiTerisi / $nilaiExpected) * 100, 1)
+                ? min(round(($nilaiTerisi / $nilaiExpected) * 100, 1), 100)
                 : 0;
 
             // Filter by completion_below jika ada
@@ -151,19 +151,20 @@ class NilaiMonitoringController extends Controller
                     ->get();
 
                 foreach ($mapels as $mapel) {
-                    // ✅ FIX: Hitung nilai per mapel (exclude soft deleted siswa)
+                    // ✅ Hitung nilai per mapel (HANYA untuk siswa AKTIF)
                     $nilaiMapelCount = DB::table('nilai')
                         ->join('siswa', 'nilai.siswa_id', '=', 'siswa.id')
                         ->where('siswa.kelas_id', $kelas->id)
-                        ->whereNull('siswa.deleted_at') // ⭐ EXCLUDE SOFT DELETED
+                        ->whereNull('siswa.deleted_at')
                         ->where('nilai.mapel_id', $mapel->id)
                         ->where('nilai.semester_id', $semesterId)
                         ->where('nilai.tahun_ajaran_id', $tahunAjaranId)
                         ->whereNotNull('nilai.nilai')
                         ->count();
 
+                    // ✅ Cap completion rate di 100%
                     $mapelCompletionRate = $totalSiswa > 0
-                        ? round(($nilaiMapelCount / $totalSiswa) * 100, 1)
+                        ? min(round(($nilaiMapelCount / $totalSiswa) * 100, 1), 100)
                         : 0;
 
                     if ($mapelCompletionRate < 100) {
@@ -174,7 +175,7 @@ class NilaiMonitoringController extends Controller
                             'nilai_terisi' => $nilaiMapelCount,
                             'nilai_expected' => $totalSiswa,
                             'completion_rate' => $mapelCompletionRate,
-                            'missing_count' => $totalSiswa - $nilaiMapelCount,
+                            'missing_count' => max($totalSiswa - $nilaiMapelCount, 0),
                         ];
                     }
                 }
@@ -194,8 +195,8 @@ class NilaiMonitoringController extends Controller
                 'total_siswa' => $totalSiswa,
                 'total_mapel' => $totalMapel,
                 'nilai_expected' => $nilaiExpected,
-                'nilai_terisi' => $nilaiTerisi,
-                'nilai_missing' => $nilaiExpected - $nilaiTerisi,
+                'nilai_terisi' => min($nilaiTerisi, $nilaiExpected), // ✅ Cap agar tidak melebihi expected
+                'nilai_missing' => max($nilaiExpected - $nilaiTerisi, 0),
                 'completion_rate' => $completionRate,
                 'status' => $status,
                 'mapel_incomplete' => $mapelDetail,
@@ -205,12 +206,12 @@ class NilaiMonitoringController extends Controller
             $overallStats['total_kelas']++;
             $overallStats['total_siswa'] += $totalSiswa;
             $overallStats['total_nilai_expected'] += $nilaiExpected;
-            $overallStats['total_nilai_terisi'] += $nilaiTerisi;
+            $overallStats['total_nilai_terisi'] += min($nilaiTerisi, $nilaiExpected);
         }
 
-        // Hitung overall completion rate
+        // ✅ Hitung overall completion rate dengan cap di 100%
         $overallStats['overall_completion_rate'] = $overallStats['total_nilai_expected'] > 0
-            ? round(($overallStats['total_nilai_terisi'] / $overallStats['total_nilai_expected']) * 100, 1)
+            ? min(round(($overallStats['total_nilai_terisi'] / $overallStats['total_nilai_expected']) * 100, 1), 100)
             : 0;
 
         // Sort by completion rate (yang paling rendah dulu)
@@ -240,12 +241,6 @@ class NilaiMonitoringController extends Controller
 
     /**
      * Get detail siswa yang belum punya nilai di kelas tertentu
-     * GET /api/admin/nilai-akhir/monitoring/kelas/{kelas_id}/missing
-     *
-     * Query params:
-     * - semester_id (optional)
-     * - tahun_ajaran_id (optional)
-     * - mapel_id (optional, filter mapel tertentu)
      */
     public function missingDetail(Request $request, $kelas_id)
     {
@@ -273,13 +268,13 @@ class NilaiMonitoringController extends Controller
 
         $mapelIdFilter = $request->query('mapel_id');
 
-        // ✅ FIX: Get siswa di kelas (exclude soft deleted)
+        // ✅ Get HANYA siswa AKTIF di kelas (exclude soft deleted)
         $siswaList = DB::table('siswa')
             ->where('kelas_id', $kelas_id)
             ->where('is_alumni', false)
-            ->whereNull('deleted_at') // ⭐ EXCLUDE SOFT DELETED
+            ->whereNull('deleted_at')
             ->orderBy('nama')
-            ->get(['id', 'nama', 'nisn']); // ✅ Include NISN
+            ->get(['id', 'nama', 'nisn']);
 
         // Get mapel kelas
         $mapelQuery = DB::table('kelas_mapel')
@@ -292,12 +287,12 @@ class NilaiMonitoringController extends Controller
 
         $mapelList = $mapelQuery->get(['mapel.id', 'mapel.nama', 'mapel.kode']);
 
-        // ✅ FIX: Get nilai yang sudah ada (exclude soft deleted siswa)
+        // ✅ Get nilai yang sudah ada (HANYA untuk siswa AKTIF)
         $nilaiExisting = DB::table('nilai')
             ->join('siswa', 'nilai.siswa_id', '=', 'siswa.id')
             ->where('nilai.semester_id', $semesterId)
             ->where('nilai.tahun_ajaran_id', $tahunAjaranId)
-            ->whereNull('siswa.deleted_at') // ⭐ EXCLUDE SOFT DELETED
+            ->whereNull('siswa.deleted_at')
             ->whereIn('nilai.siswa_id', $siswaList->pluck('id'))
             ->get(['nilai.siswa_id', 'nilai.mapel_id', 'nilai.nilai'])
             ->groupBy('siswa_id');
@@ -320,17 +315,22 @@ class NilaiMonitoringController extends Controller
                 }
             }
 
-            if (!empty($mapelMissing) || !$mapelIdFilter) {
+            // ✅ HANYA tampilkan siswa yang benar-benar ada mapel yang missing
+            // ATAU jika sedang filter mapel tertentu
+            if (!empty($mapelMissing) || $mapelIdFilter) {
+                // ✅ Cap completion rate di 100%
+                $completionRate = $mapelList->count() > 0
+                    ? min(round(($nilaiSiswa->count() / $mapelList->count()) * 100, 1), 100)
+                    : 0;
+
                 $result[] = [
                     'siswa_id' => $siswa->id,
                     'siswa_nama' => $siswa->nama,
-                    'siswa_nisn' => $siswa->nisn, // ✅ TAMBAH NISN
+                    'siswa_nisn' => $siswa->nisn,
                     'nilai_terisi' => $nilaiSiswa->count(),
                     'nilai_expected' => $mapelList->count(),
                     'mapel_missing' => $mapelMissing,
-                    'completion_rate' => $mapelList->count() > 0
-                        ? round(($nilaiSiswa->count() / $mapelList->count()) * 100, 1)
-                        : 0,
+                    'completion_rate' => $completionRate,
                 ];
             }
         }
