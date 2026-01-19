@@ -19,9 +19,9 @@ class TemplateController extends Controller
             ->get(['nama']);
 
         $kelas = \App\Models\Kelas::with('mapels')->findOrFail($kelas_id);
-        $mapels = $kelas->mapels->sortBy('nama')->pluck('nama')->toArray();
+        $mapels = $kelas->mapels->sortBy('nama')->values();
 
-        if (empty($mapels)) {
+        if ($mapels->isEmpty()) {
             return response()->json([
                 'message' => "Kelas {$kelas->nama} belum memiliki mapel yang di-assign. Silakan assign mapel terlebih dahulu melalui menu admin."
             ], 422);
@@ -82,15 +82,22 @@ class TemplateController extends Controller
         $lastRow = $row - 1;
         $sheet1->getStyle("A{$startRow}:B{$lastRow}")->getBorders()->getAllBorders()->setBorderStyle(\PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN);
 
+        // ============================================
         // Sheet 2: Import Nilai
+        // Format: No | Nama | Matematika | Catatan Matematika | Indonesia | Catatan Indonesia | ... | Ijin | Sakit | Alpa | Nilai Sikap | Deskripsi Sikap
+        // ============================================
         $sheet2 = $spreadsheet->createSheet();
         $sheet2->setTitle('Import Nilai');
 
-        $headers = array_merge(
-            ['No', 'Nama Siswa'],
-            $mapels,
-            ['Catatan', 'Ijin', 'Sakit', 'Alpa', 'Nilai Sikap', 'Deskripsi Sikap']
-        );
+        // Build headers dengan pattern: [Mapel, Catatan Mapel] untuk setiap mapel
+        $headers = ['No', 'Nama Siswa'];
+
+        foreach ($mapels as $mapel) {
+            $headers[] = $mapel->nama;
+            $headers[] = "Catatan {$mapel->nama}"; // ✅ 1 catatan per mapel
+        }
+
+        $headers = array_merge($headers, ['Ijin', 'Sakit', 'Alpa', 'Nilai Sikap', 'Deskripsi Sikap']);
 
         $col = 'A';
         foreach ($headers as $h) {
@@ -99,13 +106,15 @@ class TemplateController extends Controller
             $sheet2->getStyle($col . '1')->getFill()->setFillType(\PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID)
                 ->getStartColor()->setARGB('FF4F81BD');
             $sheet2->getStyle($col . '1')->getAlignment()->setHorizontal('center')->setVertical('center');
+            $sheet2->getStyle($col . '1')->getAlignment()->setWrapText(true);
 
+            // Set column widths
             if ($col === 'A') {
                 $sheet2->getColumnDimension($col)->setWidth(6);
             } elseif ($col === 'B') {
                 $sheet2->getColumnDimension($col)->setWidth(46);
-            } elseif (in_array($h, ['Catatan', 'Deskripsi Sikap'])) {
-                $sheet2->getColumnDimension($col)->setWidth(40);
+            } elseif (str_starts_with($h, 'Catatan ') || $h === 'Deskripsi Sikap') {
+                $sheet2->getColumnDimension($col)->setWidth(40); // Lebar untuk catatan
             } elseif (in_array($h, ['Ijin', 'Sakit', 'Alpa'])) {
                 $sheet2->getColumnDimension($col)->setWidth(10);
             } elseif ($h === 'Nilai Sikap') {
@@ -116,6 +125,7 @@ class TemplateController extends Controller
             $col++;
         }
 
+        // Fill data rows
         $rowsToMake = max($currentCount, $minRows);
         for ($r = 2; $r <= 1 + $rowsToMake; $r++) {
             $sheet2->setCellValue("A{$r}", $r - 1);
@@ -124,8 +134,12 @@ class TemplateController extends Controller
 
             for ($i = 3; $i <= count($headers); $i++) {
                 $colLetter = chr(64 + $i);
+                if ($i > 26) {
+                    $colLetter = chr(64 + floor(($i - 1) / 26)) . chr(65 + (($i - 1) % 26));
+                }
+
                 $headerName = $headers[$i - 1];
-                if (in_array($headerName, ['Catatan', 'Deskripsi Sikap'])) {
+                if (str_starts_with($headerName, 'Catatan ') || $headerName === 'Deskripsi Sikap') {
                     $sheet2->getStyle($colLetter . "{$r}")->getAlignment()->setHorizontal('left');
                 } else {
                     $sheet2->getStyle($colLetter . "{$r}")->getAlignment()->setHorizontal('center');
@@ -133,7 +147,14 @@ class TemplateController extends Controller
             }
         }
 
-        $lastColLetter = chr(64 + count($headers));
+        // Set row height untuk header
+        $sheet2->getRowDimension(1)->setRowHeight(30);
+
+        $lastColIndex = count($headers);
+        $lastColLetter = $lastColIndex <= 26
+            ? chr(64 + $lastColIndex)
+            : chr(64 + floor(($lastColIndex - 1) / 26)) . chr(65 + (($lastColIndex - 1) % 26));
+
         $sheet2->getStyle("A1:{$lastColLetter}" . (1 + $rowsToMake))->getBorders()->getAllBorders()->setBorderStyle(\PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN);
 
         $kelasNama = DB::table('kelas')->where('id', $kelas_id)->value('nama') ?? $kelas_id;

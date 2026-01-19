@@ -7,159 +7,186 @@ use App\Models\NilaiDetail;
 use App\Models\StrukturNilaiMapel;
 use App\Models\Nilai;
 use App\Models\TahunAjaran;
+use App\Models\CatatanMapelSiswa;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 class NilaiDetailController extends Controller
 {
-  public function index($kelas_id, $struktur_id)
-{
-    $struktur = StrukturNilaiMapel::where('kelas_id', $kelas_id)->findOrFail($struktur_id);
+    public function index($kelas_id, $struktur_id)
+    {
+        $struktur = StrukturNilaiMapel::where('kelas_id', $kelas_id)->findOrFail($struktur_id);
 
-    $nilaiDetails = NilaiDetail::with(['siswa', 'inputByGuru'])
-        ->where('struktur_nilai_mapel_id', $struktur_id)
-        ->get();
+        $nilaiDetails = NilaiDetail::with(['siswa', 'inputByGuru'])
+            ->where('struktur_nilai_mapel_id', $struktur_id)
+            ->get();
 
-    $siswaList = DB::table('siswa')
-        ->where('kelas_id', $kelas_id)
-        ->whereNull('deleted_at')
-        ->get(['id', 'nama']);
+        $siswaList = DB::table('siswa')
+            ->where('kelas_id', $kelas_id)
+            ->whereNull('deleted_at')
+            ->get(['id', 'nama']);
 
-    $grouped = [];
-    foreach ($siswaList as $siswa) {
-        $nilaiSiswa = $nilaiDetails->where('siswa_id', $siswa->id);
+        $grouped = [];
+        foreach ($siswaList as $siswa) {
+            $nilaiSiswa = $nilaiDetails->where('siswa_id', $siswa->id);
 
-        $nilaiData = [];
-        foreach ($nilaiSiswa as $n) {
-            if ($n->lm_key === null || $n->lm_key === "") {
-                // ASLIM/ASAS: simpan di root level
-                $nilaiData[$n->kolom_key] = $n->nilai;
-            } else {
-                // LM: simpan di nested object
-                if (!isset($nilaiData[$n->lm_key])) {
-                    $nilaiData[$n->lm_key] = [];
+            $nilaiData = [];
+
+            foreach ($nilaiSiswa as $n) {
+                if ($n->lm_key === null || $n->lm_key === "") {
+                    $nilaiData[$n->kolom_key] = $n->nilai;
+                } else {
+                    if (!isset($nilaiData[$n->lm_key])) {
+                        $nilaiData[$n->lm_key] = [];
+                    }
+                    $nilaiData[$n->lm_key][$n->kolom_key] = $n->nilai;
                 }
-                $nilaiData[$n->lm_key][$n->kolom_key] = $n->nilai;
             }
+
+            $catatan = CatatanMapelSiswa::where('siswa_id', $siswa->id)
+                ->where('struktur_nilai_mapel_id', $struktur_id)
+                ->first();
+
+            $grouped[] = [
+                'siswa_id' => $siswa->id,
+                'siswa_nama' => $siswa->nama,
+                'nilai_data' => $nilaiData,
+                'catatan' => $catatan ? $catatan->catatan : null,
+            ];
         }
 
-        $grouped[] = [
-            'siswa_id' => $siswa->id,
-            'siswa_nama' => $siswa->nama,
-            'nilai_data' => $nilaiData,
-        ];
-    }
-
-    return response()->json([
-        'struktur' => $struktur,
-        'data' => $grouped,
-    ]);
-}
-  public function storeSingle(Request $request, $kelas_id, $struktur_id)
-{
-    $user = Auth::guard('api')->user();
-    $guruId = $user->guru ? $user->guru->id : null;
-
-    $validated = $request->validate([
-        'siswa_id' => 'required|integer|exists:siswa,id',
-        'lm_key' => 'nullable|string',
-        'kolom_key' => 'required|string',
-        'nilai' => 'required|numeric|between:0,100',
-    ]);
-
-    $struktur = StrukturNilaiMapel::where('kelas_id', $kelas_id)->findOrFail($struktur_id);
-
-    $siswa = DB::table('siswa')->where('id', $validated['siswa_id'])->where('kelas_id', $kelas_id)->first();
-    if (!$siswa) {
-        return response()->json(['message' => 'Siswa tidak ditemukan di kelas ini'], 404);
-    }
-
-    try {
-        DB::beginTransaction();
-
-        $nilaiDetail = NilaiDetail::updateOrCreate(
-            [
-                'siswa_id' => $validated['siswa_id'],
-                'struktur_nilai_mapel_id' => $struktur_id,
-                'lm_key' => $validated['lm_key'],
-                'kolom_key' => $validated['kolom_key'],
-            ],
-            [
-                'mapel_id' => $struktur->mapel_id,
-                'semester_id' => $struktur->semester_id,
-                'tahun_ajaran_id' => $struktur->tahun_ajaran_id,
-                'nilai' => $validated['nilai'],
-                'input_by_guru_id' => $guruId,
-            ]
-        );
-
-        DB::commit();
-
         return response()->json([
-            'message' => 'Nilai berhasil disimpan',
-            'data' => $nilaiDetail->load('siswa', 'inputByGuru')
+            'struktur' => $struktur,
+            'data' => $grouped,
+        ]);
+    }
+
+    public function storeSingle(Request $request, $kelas_id, $struktur_id)
+    {
+        $user = Auth::guard('api')->user();
+        $guruId = $user->guru ? $user->guru->id : null;
+
+        $validated = $request->validate([
+            'siswa_id' => 'required|integer|exists:siswa,id',
+            'lm_key' => 'nullable|string',
+            'kolom_key' => 'required|string',
+            'nilai' => 'required|numeric|between:0,100',
         ]);
 
-    } catch (\Exception $e) {
-        DB::rollBack();
-        \Log::error('Store single nilai detail error: ' . $e->getMessage());
-        return response()->json(['message' => 'Error: ' . $e->getMessage()], 500);
+        $struktur = StrukturNilaiMapel::where('kelas_id', $kelas_id)->findOrFail($struktur_id);
+
+        $siswa = DB::table('siswa')->where('id', $validated['siswa_id'])->where('kelas_id', $kelas_id)->first();
+        if (!$siswa) {
+            return response()->json(['message' => 'Siswa tidak ditemukan di kelas ini'], 404);
+        }
+
+        try {
+            DB::beginTransaction();
+
+            $nilaiDetail = NilaiDetail::updateOrCreate(
+                [
+                    'siswa_id' => $validated['siswa_id'],
+                    'struktur_nilai_mapel_id' => $struktur_id,
+                    'lm_key' => $validated['lm_key'],
+                    'kolom_key' => $validated['kolom_key'],
+                ],
+                [
+                    'mapel_id' => $struktur->mapel_id,
+                    'semester_id' => $struktur->semester_id,
+                    'tahun_ajaran_id' => $struktur->tahun_ajaran_id,
+                    'nilai' => $validated['nilai'],
+                    'input_by_guru_id' => $guruId,
+                ]
+            );
+
+            DB::commit();
+
+            return response()->json([
+                'message' => 'Nilai berhasil disimpan',
+                'data' => $nilaiDetail->load('siswa', 'inputByGuru')
+            ]);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            \Log::error('Store single nilai detail error: ' . $e->getMessage());
+            return response()->json(['message' => 'Error: ' . $e->getMessage()], 500);
+        }
     }
-}
 
+    public function storeBulk(Request $request, $kelas_id, $struktur_id)
+    {
+        $user = Auth::guard('api')->user();
+        $guruId = $user->guru ? $user->guru->id : null;
 
-public function storeBulk(Request $request, $kelas_id, $struktur_id)
-{
-    $user = Auth::guard('api')->user();
-    $guruId = $user->guru ? $user->guru->id : null;
+        $struktur = StrukturNilaiMapel::where('kelas_id', $kelas_id)->findOrFail($struktur_id);
 
-    $struktur = StrukturNilaiMapel::where('kelas_id', $kelas_id)->findOrFail($struktur_id);
+        $validated = $request->validate([
+            'data' => 'required|array',
+            'data.*.siswa_id' => 'required|integer|exists:siswa,id',
+            'data.*.nilai_data' => 'required|array',
+            'data.*.catatan' => 'nullable|string', // ✅ 1 catatan per siswa per mapel
+        ]);
 
-    $validated = $request->validate([
-        'data' => 'required|array',
-        'data.*.siswa_id' => 'required|integer|exists:siswa,id',
-        'data.*.nilai_data' => 'required|array',
-    ]);
+        $saved = [];
+        $skipped = [];
 
-    $saved = [];
-    $skipped = [];
+        try {
+            DB::beginTransaction();
 
-    try {
-        DB::beginTransaction();
+            foreach ($validated['data'] as $item) {
+                $siswa = DB::table('siswa')->where('id', $item['siswa_id'])->first();
+                if (!$siswa || $siswa->kelas_id != $kelas_id) {
+                    $skipped[] = [
+                        'siswa_id' => $item['siswa_id'],
+                        'reason' => 'Siswa tidak ditemukan di kelas ini'
+                    ];
+                    continue;
+                }
 
-        foreach ($validated['data'] as $item) {
-            $siswa = DB::table('siswa')->where('id', $item['siswa_id'])->first();
-            if (!$siswa || $siswa->kelas_id != $kelas_id) {
-                $skipped[] = [
-                    'siswa_id' => $item['siswa_id'],
-                    'reason' => 'Siswa tidak ditemukan di kelas ini'
-                ];
-                continue;
-            }
+                $nilaiData = $item['nilai_data'];
+                $catatan = $item['catatan'] ?? null; // ✅ Catatan per mapel
 
-            $nilaiData = $item['nilai_data'];
+                if (empty($nilaiData)) {
+                    $skipped[] = [
+                        'siswa_id' => $item['siswa_id'],
+                        'reason' => 'Tidak ada nilai yang dikirim untuk siswa ini'
+                    ];
+                    continue;
+                }
 
-            // ✅ DEBUG LOG
-            \Log::info("Nilai data received for siswa {$item['siswa_id']}:", $nilaiData);
+                $nilaiCount = 0;
 
-            if (empty($nilaiData)) {
-                $skipped[] = [
-                    'siswa_id' => $item['siswa_id'],
-                    'reason' => 'Tidak ada nilai yang dikirim untuk siswa ini'
-                ];
-                continue;
-            }
+                // Process nested structure (nilai detail)
+                foreach ($nilaiData as $key => $value) {
+                    if (is_array($value)) {
+                        // Nested LM
+                        $lmKey = $key;
+                        foreach ($value as $kolomKey => $nilaiValue) {
+                            if ($nilaiValue === null || $nilaiValue === '') {
+                                continue;
+                            }
 
-            $nilaiCount = 0;
-
-            // ✅ PROCESS NESTED STRUCTURE
-            foreach ($nilaiData as $key => $value) {
-                if (is_array($value)) {
-                    // Nested LM (lingkup_materi)
-                    $lmKey = $key;
-                    foreach ($value as $kolomKey => $nilaiValue) {
-                        if ($nilaiValue === null || $nilaiValue === '') {
+                            NilaiDetail::updateOrCreate(
+                                [
+                                    'siswa_id' => $item['siswa_id'],
+                                    'struktur_nilai_mapel_id' => $struktur_id,
+                                    'lm_key' => $lmKey,
+                                    'kolom_key' => $kolomKey,
+                                ],
+                                [
+                                    'mapel_id' => $struktur->mapel_id,
+                                    'semester_id' => $struktur->semester_id,
+                                    'tahun_ajaran_id' => $struktur->tahun_ajaran_id,
+                                    'nilai' => $nilaiValue,
+                                    'input_by_guru_id' => $guruId,
+                                ]
+                            );
+                            $nilaiCount++;
+                        }
+                    } else {
+                        // Flat (ASLIM/ASAS)
+                        if ($value === null || $value === '') {
                             continue;
                         }
 
@@ -167,146 +194,139 @@ public function storeBulk(Request $request, $kelas_id, $struktur_id)
                             [
                                 'siswa_id' => $item['siswa_id'],
                                 'struktur_nilai_mapel_id' => $struktur_id,
-                                'lm_key' => $lmKey,
-                                'kolom_key' => $kolomKey,
+                                'lm_key' => null,
+                                'kolom_key' => $key,
                             ],
                             [
                                 'mapel_id' => $struktur->mapel_id,
                                 'semester_id' => $struktur->semester_id,
                                 'tahun_ajaran_id' => $struktur->tahun_ajaran_id,
-                                'nilai' => $nilaiValue,
+                                'nilai' => $value,
                                 'input_by_guru_id' => $guruId,
                             ]
                         );
                         $nilaiCount++;
                     }
-                } else {
-                    // Flat (ASLIM/ASAS)
-                    if ($value === null || $value === '') {
-                        continue;
-                    }
+                }
 
-                    NilaiDetail::updateOrCreate(
+                // ✅ SIMPAN CATATAN PER MAPEL (terpisah dari nilai detail)
+                if ($catatan) {
+                    CatatanMapelSiswa::updateOrCreate(
                         [
                             'siswa_id' => $item['siswa_id'],
                             'struktur_nilai_mapel_id' => $struktur_id,
-                            'lm_key' => null,
-                            'kolom_key' => $key,
                         ],
                         [
-                            'mapel_id' => $struktur->mapel_id,
-                            'semester_id' => $struktur->semester_id,
-                            'tahun_ajaran_id' => $struktur->tahun_ajaran_id,
-                            'nilai' => $value,
+                            'catatan' => $catatan,
                             'input_by_guru_id' => $guruId,
                         ]
                     );
-                    $nilaiCount++;
+                }
+
+                if ($nilaiCount > 0) {
+                    $saved[] = [
+                        'siswa_id' => $item['siswa_id'],
+                        'siswa_nama' => $siswa->nama,
+                        'nilai_saved' => $nilaiCount,
+                        'catatan_saved' => $catatan ? true : false,
+                    ];
+                } else {
+                    $skipped[] = [
+                        'siswa_id' => $item['siswa_id'],
+                        'reason' => 'Tidak ada nilai valid yang dikirim'
+                    ];
                 }
             }
 
-            if ($nilaiCount > 0) {
-                $saved[] = [
-                    'siswa_id' => $item['siswa_id'],
-                    'siswa_nama' => $siswa->nama,
-                    'nilai_saved' => $nilaiCount
-                ];
-            } else {
-                $skipped[] = [
-                    'siswa_id' => $item['siswa_id'],
-                    'reason' => 'Tidak ada nilai valid yang dikirim'
-                ];
-            }
+            DB::commit();
+
+            return response()->json([
+                'message' => 'Nilai berhasil disimpan',
+                'summary' => [
+                    'total_siswa' => count($validated['data']),
+                    'saved' => count($saved),
+                    'skipped' => count($skipped),
+                ],
+                'saved' => $saved,
+                'skipped' => $skipped
+            ]);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            \Log::error('Store bulk nilai detail error: ' . $e->getMessage());
+            return response()->json(['message' => 'Error: ' . $e->getMessage()], 500);
+        }
+    }
+
+    public function getProgress($kelas_id, $struktur_id)
+    {
+        $struktur = StrukturNilaiMapel::where('kelas_id', $kelas_id)
+            ->with(['mapel', 'semester'])
+            ->findOrFail($struktur_id);
+
+        $siswaList = DB::table('siswa')
+            ->where('kelas_id', $kelas_id)
+            ->whereNull('deleted_at')
+            ->orderBy('nama')
+            ->get();
+
+        $lingkup = $struktur->struktur['lingkup_materi'] ?? [];
+
+        $totalKolom = 0;
+        foreach ($lingkup as $lm) {
+            $formatif = $lm['formatif'] ?? [];
+            $totalKolom += count($formatif);
+        }
+        $totalKolom += 2; // +ASLIM +ASAS
+
+        $progress = [];
+
+        foreach ($siswaList as $siswa) {
+            $nilaiCount = NilaiDetail::where('siswa_id', $siswa->id)
+                ->where('struktur_nilai_mapel_id', $struktur_id)
+                ->count();
+
+            $percentage = $totalKolom > 0 ? round(($nilaiCount / $totalKolom) * 100) : 0;
+
+            $progress[] = [
+                'siswa_id' => $siswa->id,
+                'siswa_nama' => $siswa->nama,
+                'nilai_terisi' => $nilaiCount,
+                'total_kolom' => $totalKolom,
+                'percentage' => $percentage,
+                'status' => $percentage == 100 ? 'complete' : ($percentage > 0 ? 'partial' : 'empty')
+            ];
         }
 
-        DB::commit();
+        $complete = collect($progress)->where('status', 'complete')->count();
+        $partial = collect($progress)->where('status', 'partial')->count();
+        $empty = collect($progress)->where('status', 'empty')->count();
 
         return response()->json([
-            'message' => 'Nilai berhasil disimpan',
-            'summary' => [
-                'total_siswa' => count($validated['data']),
-                'saved' => count($saved),
-                'skipped' => count($skipped),
+            'kelas' => [
+                'id' => $kelas_id,
+                'nama' => DB::table('kelas')->where('id', $kelas_id)->value('nama')
             ],
-            'saved' => $saved,
-            'skipped' => $skipped
+            'struktur' => [
+                'id' => $struktur->id,
+                'mapel' => $struktur->mapel->nama,
+                'semester' => $struktur->semester->nama,
+                'total_kolom' => $totalKolom
+            ],
+            'summary' => [
+                'total_siswa' => $siswaList->count(),
+                'complete' => $complete,
+                'partial' => $partial,
+                'empty' => $empty,
+                'completion_rate' => $siswaList->count() > 0
+                    ? round(($complete / $siswaList->count()) * 100)
+                    : 0
+            ],
+            'progress' => $progress
         ]);
-
-    } catch (\Exception $e) {
-        DB::rollBack();
-        \Log::error('Store bulk nilai detail error: ' . $e->getMessage());
-        return response()->json(['message' => 'Error: ' . $e->getMessage()], 500);
-    }
-}
-
-     public function getProgress($kelas_id, $struktur_id)
-{
-    $struktur = StrukturNilaiMapel::where('kelas_id', $kelas_id)
-        ->with(['mapel', 'semester'])
-        ->findOrFail($struktur_id);
-
-    $siswaList = DB::table('siswa')
-        ->where('kelas_id', $kelas_id)
-        ->whereNull('deleted_at')
-        ->orderBy('nama')
-        ->get();
-
-    $lingkup = $struktur->struktur['lingkup_materi'] ?? [];
-
-    $totalKolom = 0;
-    foreach ($lingkup as $lm) {
-        $formatif = $lm['formatif'] ?? [];
-        $totalKolom += count($formatif);
-    }
-    $totalKolom += 2; // +ASLIM +ASAS
-
-    $progress = [];
-
-    foreach ($siswaList as $siswa) {
-        $nilaiCount = NilaiDetail::where('siswa_id', $siswa->id)
-            ->where('struktur_nilai_mapel_id', $struktur_id)
-            ->count();
-
-        $percentage = $totalKolom > 0 ? round(($nilaiCount / $totalKolom) * 100) : 0;
-
-        $progress[] = [
-            'siswa_id' => $siswa->id,
-            'siswa_nama' => $siswa->nama,
-            'nilai_terisi' => $nilaiCount,
-            'total_kolom' => $totalKolom,
-            'percentage' => $percentage,
-            'status' => $percentage == 100 ? 'complete' : ($percentage > 0 ? 'partial' : 'empty')
-        ];
     }
 
-    $complete = collect($progress)->where('status', 'complete')->count();
-    $partial = collect($progress)->where('status', 'partial')->count();
-    $empty = collect($progress)->where('status', 'empty')->count();
-
-    return response()->json([
-        'kelas' => [
-            'id' => $kelas_id,
-            'nama' => DB::table('kelas')->where('id', $kelas_id)->value('nama')
-        ],
-        'struktur' => [
-            'id' => $struktur->id,
-            'mapel' => $struktur->mapel->nama,
-            'semester' => $struktur->semester->nama,
-            'total_kolom' => $totalKolom
-        ],
-        'summary' => [
-            'total_siswa' => $siswaList->count(),
-            'complete' => $complete,
-            'partial' => $partial,
-            'empty' => $empty,
-            'completion_rate' => $siswaList->count() > 0
-                ? round(($complete / $siswaList->count()) * 100)
-                : 0
-        ],
-        'progress' => $progress
-    ]);
-}
-     public function generateNilaiAkhir($kelas_id, $struktur_id)
+    public function generateNilaiAkhir($kelas_id, $struktur_id)
     {
         $user = Auth::guard('api')->user();
         $guruId = $user->guru ? $user->guru->id : null;
@@ -354,6 +374,15 @@ public function storeBulk(Request $request, $kelas_id, $struktur_id)
                     continue;
                 }
 
+                // ✅ AMBIL CATATAN PER MAPEL (1 catatan untuk seluruh mapel)
+                $catatanMapel = CatatanMapelSiswa::where('siswa_id', $siswa->id)
+                    ->where('struktur_nilai_mapel_id', $struktur_id)
+                    ->first();
+
+                $catatanFinal = $catatanMapel && $catatanMapel->catatan
+                    ? $catatanMapel->catatan
+                    : 'Auto-generated pada ' . now()->format('Y-m-d H:i:s');
+
                 try {
                     Nilai::updateOrCreate(
                         [
@@ -364,7 +393,7 @@ public function storeBulk(Request $request, $kelas_id, $struktur_id)
                         ],
                         [
                             'nilai' => $result['nilai_akhir'],
-                            'catatan' => 'Auto-generated dari nilai detail pada ' . now()->format('Y-m-d H:i:s'),
+                            'catatan' => $catatanFinal, // ✅ CATATAN DARI CATATAN_MAPEL_SISWA
                             'input_by_guru_id' => $guruId,
                             'updated_at' => now(),
                         ]
@@ -376,6 +405,7 @@ public function storeBulk(Request $request, $kelas_id, $struktur_id)
                         'siswa_nama' => $siswa->nama,
                         'status' => 'success',
                         'nilai_akhir' => $result['nilai_akhir'],
+                        'catatan' => $catatanFinal,
                     ];
                 } catch (\Exception $e) {
                     $summary['failed']++;
@@ -406,7 +436,7 @@ public function storeBulk(Request $request, $kelas_id, $struktur_id)
         }
     }
 
-   protected function calculateNilaiAkhir($siswa_id, $struktur)
+    protected function calculateNilaiAkhir($siswa_id, $struktur)
     {
         $nilaiDetails = NilaiDetail::where('siswa_id', $siswa_id)
             ->where('struktur_nilai_mapel_id', $struktur->id)
@@ -421,19 +451,16 @@ public function storeBulk(Request $request, $kelas_id, $struktur_id)
 
         $strukturData = $struktur->struktur;
 
-        // ✅ Ambil semua nilai formatif dari semua LM
         $allFormatifValues = [];
         $formatifPerLM = [];
         $missingData = [];
 
-        // Loop through Lingkup Materi
         foreach ($strukturData['lingkup_materi'] as $lm) {
             $lmKey = $lm['lm_key'];
             $lmLabel = $lm['lm_label'];
             $formatifValues = [];
             $lmMissing = [];
 
-            // Ambil semua nilai formatif di LM ini
             foreach ($lm['formatif'] as $formatif) {
                 $kolomKey = $formatif['kolom_key'];
 
@@ -459,23 +486,20 @@ public function storeBulk(Request $request, $kelas_id, $struktur_id)
             }
         }
 
-        // ✅ Ambil ASLIM (UTS) - hanya 1
         $aslimKey = $strukturData['aslim']['kolom_key'];
         $aslimNilai = $nilaiDetails->where('kolom_key', $aslimKey)->first();
 
         if (!$aslimNilai || $aslimNilai->nilai === null) {
-            $missingData['ASLIM'] = ['Nilai UTS (Ujian Tengah Semester) belum diinput'];
+            $missingData['ASLIM'] = ['Nilai UTS belum diinput'];
         }
 
-        // ✅ Ambil ASAS (UAS) - hanya 1
         $asasKey = $strukturData['asas']['kolom_key'];
         $asasNilai = $nilaiDetails->where('kolom_key', $asasKey)->first();
 
         if (!$asasNilai || $asasNilai->nilai === null) {
-            $missingData['ASAS'] = ['Nilai UAS (Ujian Akhir Semester) belum diinput'];
+            $missingData['ASAS'] = ['Nilai UAS belum diinput'];
         }
 
-        // Validasi kelengkapan data
         if (!empty($missingData)) {
             return [
                 'success' => false,
@@ -491,12 +515,10 @@ public function storeBulk(Request $request, $kelas_id, $struktur_id)
             ];
         }
 
-        // ✅ Hitung RATA-RATA dari semua formatif
         $rataRata = array_sum($allFormatifValues) / count($allFormatifValues);
         $aslim = $aslimNilai->nilai;
         $asas = $asasNilai->nilai;
 
-        // ✅ NILAI AKHIR = (RATA-RATA + ASLIM + ASAS) / 3
         $nilaiAkhir = ($rataRata + $aslim + $asas) / 3;
 
         return [
@@ -551,6 +573,12 @@ public function storeBulk(Request $request, $kelas_id, $struktur_id)
             ];
         }
 
+        // ✅ GET CATATAN PER MAPEL
+        $catatanMapel = CatatanMapelSiswa::with('inputByGuru')
+            ->where('siswa_id', $siswa_id)
+            ->where('struktur_nilai_mapel_id', $struktur_id)
+            ->first();
+
         $result = $this->calculateNilaiAkhir($siswa_id, $struktur);
 
         $nilaiAkhir = Nilai::where('siswa_id', $siswa_id)
@@ -563,6 +591,11 @@ public function storeBulk(Request $request, $kelas_id, $struktur_id)
             'siswa' => $siswa,
             'struktur' => $struktur,
             'nilai_data' => $nilaiData,
+            'catatan' => $catatanMapel ? [
+                'catatan' => $catatanMapel->catatan,
+                'input_by' => $catatanMapel->inputByGuru ? $catatanMapel->inputByGuru->nama : null,
+                'updated_at' => $catatanMapel->updated_at,
+            ] : null,
             'perhitungan' => $result,
             'nilai_akhir_tersimpan' => $nilaiAkhir ? [
                 'nilai' => $nilaiAkhir->nilai,
