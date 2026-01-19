@@ -205,7 +205,6 @@ class ImportNilaiController extends Controller
 
                 $nilaiNumeric = (int) round((float) $val);
 
-                // ✅ SIMPAN NILAI (tanpa catatan di sini, catatan terpisah)
                 $entry = [
                     'siswa_id' => $siswa['id'],
                     'mapel_id' => $mapel_id,
@@ -213,9 +212,12 @@ class ImportNilaiController extends Controller
                     'tahun_ajaran_id' => $activeTahunAjaran->id,
                 ];
 
+                // ✅ PERBAIKAN: Tidak simpan catatan di tabel nilai
+                // Catatan akan diambil dari catatan_mapel_siswa saat generate nilai akhir
                 $data = [
                     'nilai' => $nilaiNumeric,
-                    'catatan' => '-', // Default catatan untuk tabel nilai
+                    'catatan' => null, // ✅ NULL - catatan ada di catatan_mapel_siswa
+                    'catatan_source' => 'excel',
                     'input_by_guru_id' => $uploaderGuruId,
                     'updated_at' => now(),
                     'created_at' => now(),
@@ -254,7 +256,7 @@ class ImportNilaiController extends Controller
                         }
                     }
 
-                    // Simpan catatan jika ada
+                    // ✅ Simpan catatan jika ada (ini adalah catatan untuk NILAI AKHIR)
                     if ($catatan && !$dryRun) {
                         try {
                             CatatanMapelSiswa::updateOrCreate(
@@ -373,7 +375,8 @@ class ImportNilaiController extends Controller
             'details' => [
                 'success' => $success,
                 'failed' => $failed,
-            ]
+            ],
+            'note' => 'Nilai akhir tersimpan. Catatan akademik tersimpan di catatan_mapel_siswa. Gunakan endpoint generate nilai akhir jika menggunakan sistem nilai detail.'
         ]);
     }
 }

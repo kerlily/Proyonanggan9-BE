@@ -326,115 +326,120 @@ class NilaiDetailController extends Controller
         ]);
     }
 
-    public function generateNilaiAkhir($kelas_id, $struktur_id)
-    {
-        $user = Auth::guard('api')->user();
-        $guruId = $user->guru ? $user->guru->id : null;
 
-        $struktur = StrukturNilaiMapel::where('kelas_id', $kelas_id)
-            ->with(['mapel', 'semester', 'tahunAjaran'])
-            ->findOrFail($struktur_id);
+public function generateNilaiAkhir($kelas_id, $struktur_id)
+{
+    $user = Auth::guard('api')->user();
+    $guruId = $user->guru ? $user->guru->id : null;
 
-        $kelas = \App\Models\Kelas::with('mapels')->findOrFail($kelas_id);
-        $mapelExists = $kelas->mapels()->where('mapel_id', $struktur->mapel_id)->exists();
+    $struktur = StrukturNilaiMapel::where('kelas_id', $kelas_id)
+        ->with(['mapel', 'semester', 'tahunAjaran'])
+        ->findOrFail($struktur_id);
 
-        if (!$mapelExists) {
-            return response()->json([
-                'message' => "Mapel '{$struktur->mapel->nama}' sudah tidak di-assign ke kelas {$kelas->nama}."
-            ], 422);
-        }
+    $kelas = \App\Models\Kelas::with('mapels')->findOrFail($kelas_id);
+    $mapelExists = $kelas->mapels()->where('mapel_id', $struktur->mapel_id)->exists();
 
-        $siswaList = DB::table('siswa')
-            ->where('kelas_id', $kelas_id)
-            ->whereNull('deleted_at')
-            ->get(['id', 'nama']);
+    if (!$mapelExists) {
+        return response()->json([
+            'message' => "Mapel '{$struktur->mapel->nama}' sudah tidak di-assign ke kelas {$kelas->nama}."
+        ], 422);
+    }
 
-        $summary = [
-            'success' => 0,
-            'skipped_incomplete' => 0,
-            'failed' => 0,
-            'details' => [],
-        ];
+    $siswaList = DB::table('siswa')
+        ->where('kelas_id', $kelas_id)
+        ->whereNull('deleted_at')
+        ->get(['id', 'nama']);
 
-        try {
-            DB::beginTransaction();
+    $summary = [
+        'success' => 0,
+        'skipped_incomplete' => 0,
+        'failed' => 0,
+        'details' => [],
+    ];
 
-            foreach ($siswaList as $siswa) {
-                $result = $this->calculateNilaiAkhir($siswa->id, $struktur);
+    try {
+        DB::beginTransaction();
 
-                if (!$result['success']) {
-                    $summary['skipped_incomplete']++;
-                    $summary['details'][] = [
-                        'siswa_id' => $siswa->id,
-                        'siswa_nama' => $siswa->nama,
-                        'status' => 'skipped',
-                        'reason' => $result['message'],
-                        'missing' => $result['missing'] ?? null,
-                    ];
-                    continue;
-                }
+        foreach ($siswaList as $siswa) {
+            $result = $this->calculateNilaiAkhir($siswa->id, $struktur);
 
-                // ✅ AMBIL CATATAN PER MAPEL (1 catatan untuk seluruh mapel)
-                $catatanMapel = CatatanMapelSiswa::where('siswa_id', $siswa->id)
-                    ->where('struktur_nilai_mapel_id', $struktur_id)
-                    ->first();
-
-                $catatanFinal = $catatanMapel && $catatanMapel->catatan
-                    ? $catatanMapel->catatan
-                    : 'Auto-generated pada ' . now()->format('Y-m-d H:i:s');
-
-                try {
-                    Nilai::updateOrCreate(
-                        [
-                            'siswa_id' => $siswa->id,
-                            'mapel_id' => $struktur->mapel_id,
-                            'semester_id' => $struktur->semester_id,
-                            'tahun_ajaran_id' => $struktur->tahun_ajaran_id,
-                        ],
-                        [
-                            'nilai' => $result['nilai_akhir'],
-                            'catatan' => $catatanFinal, // ✅ CATATAN DARI CATATAN_MAPEL_SISWA
-                            'input_by_guru_id' => $guruId,
-                            'updated_at' => now(),
-                        ]
-                    );
-
-                    $summary['success']++;
-                    $summary['details'][] = [
-                        'siswa_id' => $siswa->id,
-                        'siswa_nama' => $siswa->nama,
-                        'status' => 'success',
-                        'nilai_akhir' => $result['nilai_akhir'],
-                        'catatan' => $catatanFinal,
-                    ];
-                } catch (\Exception $e) {
-                    $summary['failed']++;
-                    $summary['details'][] = [
-                        'siswa_id' => $siswa->id,
-                        'siswa_nama' => $siswa->nama,
-                        'status' => 'failed',
-                        'reason' => 'Database error: ' . $e->getMessage(),
-                    ];
-                }
+            if (!$result['success']) {
+                $summary['skipped_incomplete']++;
+                $summary['details'][] = [
+                    'siswa_id' => $siswa->id,
+                    'siswa_nama' => $siswa->nama,
+                    'status' => 'skipped',
+                    'reason' => $result['message'],
+                    'missing' => $result['missing'] ?? null,
+                ];
+                continue;
             }
 
-            DB::commit();
+            // ✅ PERBAIKAN: AMBIL CATATAN PER MAPEL (1 catatan untuk seluruh mapel)
+            $catatanMapel = CatatanMapelSiswa::where('siswa_id', $siswa->id)
+                ->where('struktur_nilai_mapel_id', $struktur_id)
+                ->first();
 
-            return response()->json([
-                'message' => 'Generate nilai akhir selesai',
-                'kelas' => ['id' => $kelas->id, 'nama' => $kelas->nama],
-                'mapel' => ['id' => $struktur->mapel->id, 'nama' => $struktur->mapel->nama],
-                'semester' => ['id' => $struktur->semester->id, 'nama' => $struktur->semester->nama],
-                'summary' => $summary,
-                'note' => $summary['skipped_incomplete'] > 0
-                    ? "{$summary['skipped_incomplete']} siswa di-skip karena data nilai belum lengkap"
-                    : null
-            ]);
-        } catch (\Exception $e) {
-            DB::rollBack();
-            return response()->json(['message' => 'Error: ' . $e->getMessage()], 500);
+            // ✅ PERBAIKAN: Catatan dari catatan_mapel_siswa, bukan auto-generated
+            $catatanFinal = $catatanMapel && $catatanMapel->catatan
+                ? $catatanMapel->catatan
+                : null; // ✅ Null jika tidak ada catatan, bukan auto-generated message
+
+            try {
+                Nilai::updateOrInsert(
+                    [
+                        'siswa_id' => $siswa->id,
+                        'mapel_id' => $struktur->mapel_id,
+                        'semester_id' => $struktur->semester_id,
+                        'tahun_ajaran_id' => $struktur->tahun_ajaran_id,
+                    ],
+                    [
+                        'nilai' => $result['nilai_akhir'],
+                        'catatan' => $catatanFinal, // ✅ CATATAN DARI CATATAN_MAPEL_SISWA atau NULL
+                        'catatan_source' => 'generated', // ✅ Tandai bahwa ini di-generate
+                        'input_by_guru_id' => $guruId,
+                        'updated_at' => now(),
+                    ]
+                );
+
+                $summary['success']++;
+                $summary['details'][] = [
+                    'siswa_id' => $siswa->id,
+                    'siswa_nama' => $siswa->nama,
+                    'status' => 'success',
+                    'nilai_akhir' => $result['nilai_akhir'],
+                    'catatan' => $catatanFinal ?? '(tidak ada catatan)',
+                    'catatan_source' => 'generated',
+                ];
+            } catch (\Exception $e) {
+                $summary['failed']++;
+                $summary['details'][] = [
+                    'siswa_id' => $siswa->id,
+                    'siswa_nama' => $siswa->nama,
+                    'status' => 'failed',
+                    'reason' => 'Database error: ' . $e->getMessage(),
+                ];
+            }
         }
+
+        DB::commit();
+
+        return response()->json([
+            'message' => 'Generate nilai akhir selesai',
+            'kelas' => ['id' => $kelas->id, 'nama' => $kelas->nama],
+            'mapel' => ['id' => $struktur->mapel->id, 'nama' => $struktur->mapel->nama],
+            'semester' => ['id' => $struktur->semester->id, 'nama' => $struktur->semester->nama],
+            'summary' => $summary,
+            'note' => $summary['skipped_incomplete'] > 0
+                ? "{$summary['skipped_incomplete']} siswa di-skip karena data nilai belum lengkap"
+                : null,
+            'catatan_note' => 'Catatan akademik diambil dari catatan_mapel_siswa. Siswa tanpa catatan akan memiliki nilai NULL.'
+        ]);
+    } catch (\Exception $e) {
+        DB::rollBack();
+        return response()->json(['message' => 'Error: ' . $e->getMessage()], 500);
     }
+}
 
     protected function calculateNilaiAkhir($siswa_id, $struktur)
     {
