@@ -375,17 +375,18 @@ public function generateNilaiAkhir($kelas_id, $struktur_id)
                 continue;
             }
 
-            // ✅ PERBAIKAN: AMBIL CATATAN PER MAPEL (1 catatan untuk seluruh mapel)
+            // ✅ AMBIL CATATAN PER MAPEL (1 catatan untuk seluruh mapel)
             $catatanMapel = CatatanMapelSiswa::where('siswa_id', $siswa->id)
                 ->where('struktur_nilai_mapel_id', $struktur_id)
                 ->first();
 
-            // ✅ PERBAIKAN: Catatan dari catatan_mapel_siswa, bukan auto-generated
+            // ✅ Catatan dari catatan_mapel_siswa, bukan auto-generated
             $catatanFinal = $catatanMapel && $catatanMapel->catatan
                 ? $catatanMapel->catatan
-                : null; // ✅ Null jika tidak ada catatan, bukan auto-generated message
+                : null; // ✅ Null jika tidak ada catatan
 
             try {
+                // ✅ CRITICAL FIX: Tambahkan is_generated=true dan sumber_perhitungan
                 Nilai::updateOrInsert(
                     [
                         'siswa_id' => $siswa->id,
@@ -395,8 +396,10 @@ public function generateNilaiAkhir($kelas_id, $struktur_id)
                     ],
                     [
                         'nilai' => $result['nilai_akhir'],
-                        'catatan' => $catatanFinal, // ✅ CATATAN DARI CATATAN_MAPEL_SISWA atau NULL
-                        'catatan_source' => 'generated', // ✅ Tandai bahwa ini di-generate
+                        'catatan' => $catatanFinal, // ✅ Dari catatan_mapel_siswa atau NULL
+                        'catatan_source' => 'generated',
+                        'is_generated' => true, // ✅ CRITICAL FIX: Hasil generate
+                        'sumber_perhitungan' => $result['detail']['formula'] ?? null, // ✅ CRITICAL FIX: Simpan formula
                         'input_by_guru_id' => $guruId,
                         'updated_at' => now(),
                     ]
@@ -410,6 +413,8 @@ public function generateNilaiAkhir($kelas_id, $struktur_id)
                     'nilai_akhir' => $result['nilai_akhir'],
                     'catatan' => $catatanFinal ?? '(tidak ada catatan)',
                     'catatan_source' => 'generated',
+                    'is_generated' => true,
+                    'sumber_perhitungan' => $result['detail']['formula'] ?? null,
                 ];
             } catch (\Exception $e) {
                 $summary['failed']++;
@@ -433,14 +438,14 @@ public function generateNilaiAkhir($kelas_id, $struktur_id)
             'note' => $summary['skipped_incomplete'] > 0
                 ? "{$summary['skipped_incomplete']} siswa di-skip karena data nilai belum lengkap"
                 : null,
-            'catatan_note' => 'Catatan akademik diambil dari catatan_mapel_siswa. Siswa tanpa catatan akan memiliki nilai NULL.'
+            'catatan_note' => 'Catatan akademik diambil dari catatan_mapel_siswa. Siswa tanpa catatan akan memiliki nilai NULL.',
+            'fix_note' => 'Nilai tersimpan dengan is_generated=1 dan sumber_perhitungan berisi formula'
         ]);
     } catch (\Exception $e) {
         DB::rollBack();
         return response()->json(['message' => 'Error: ' . $e->getMessage()], 500);
     }
 }
-
     protected function calculateNilaiAkhir($siswa_id, $struktur)
     {
         $nilaiDetails = NilaiDetail::where('siswa_id', $siswa_id)

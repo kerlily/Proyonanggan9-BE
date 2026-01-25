@@ -101,6 +101,14 @@ class ImportNilaiController extends Controller
             if (preg_match('/^catatan\s+(.+)$/i', $t, $matches)) {
                 $mapelName = trim($matches[1]);
                 $catatanCols[$col] = $mapelName;
+
+                // ✅ DEBUG LOG
+                \Log::info("Import Excel: Header Catatan Detected", [
+                    'col' => $col,
+                    'header_text' => $t,
+                    'mapel_name' => $mapelName
+                ]);
+
                 continue;
             }
 
@@ -116,7 +124,7 @@ class ImportNilaiController extends Controller
 
         $kelas = \App\Models\Kelas::with('mapels')->findOrFail($kelas_id);
 
-        $siswaRows = DB::table('siswa')->where('kelas_id', $kelas_id)->get(['id','nama']);
+        $siswaRows = DB::table('siswa')->where('kelas_id', $kelas_id)->whereNull('deleted_at')->get(['id','nama']);
         $siswaByNorm = [];
         foreach ($siswaRows as $s) {
             $siswaByNorm[$this->normalize($s->nama)][] = ['id'=>$s->id, 'nama'=>$s->nama];
@@ -163,12 +171,33 @@ class ImportNilaiController extends Controller
             $norm = $this->normalize($mapelName);
             if (isset($mapelByNorm[$norm])) {
                 $catatanColToMapelId[$col] = $mapelByNorm[$norm]['id'];
+
+                // ✅ DEBUG LOG
+                \Log::info("Import Excel: Catatan Column Mapped", [
+                    'col' => $col,
+                    'mapel_name' => $mapelName,
+                    'normalized' => $norm,
+                    'mapel_id' => $mapelByNorm[$norm]['id']
+                ]);
+            } else {
+                // ✅ DEBUG: Mapping gagal
+                \Log::warning("Import Excel: Catatan Column NOT Mapped", [
+                    'col' => $col,
+                    'mapel_name' => $mapelName,
+                    'normalized' => $norm,
+                    'available_mapels' => array_keys($mapelByNorm)
+                ]);
             }
         }
 
         $maxRow = max(array_keys($rows));
         $success = [];
         $failed = [];
+        $catatanStats = [
+            'saved_to_catatan_mapel_siswa' => 0,
+            'saved_to_nilai_table' => 0,
+            'failed' => 0,
+        ];
 
         for ($r = 2; $r <= $maxRow; $r++) {
             if (!isset($rows[$r])) continue;
@@ -212,12 +241,33 @@ class ImportNilaiController extends Controller
                     'tahun_ajaran_id' => $activeTahunAjaran->id,
                 ];
 
-                // ✅ PERBAIKAN: Tidak simpan catatan di tabel nilai
-                // Catatan akan diambil dari catatan_mapel_siswa saat generate nilai akhir
+                // ✅ CARI CATATAN UNTUK MAPEL INI (SEBELUM INSERT NILAI)
+                $catatan = null;
+                foreach ($catatanColToMapelId as $catatanCol => $catatanMapelId) {
+                    if ($catatanMapelId == $mapel_id) {
+                        $rawCatatan = trim((string)($row[$catatanCol] ?? ''));
+                        $catatan = $rawCatatan === '' ? null : $rawCatatan;
+
+                        // ✅ DEBUG LOG
+                        \Log::info("Import Excel: Catatan Found", [
+                            'row' => $r,
+                            'siswa' => $rawNama,
+                            'mapel' => $mapelHeader,
+                            'catatan' => $catatan,
+                            'col' => $catatanCol
+                        ]);
+
+                        break;
+                    }
+                }
+
+                // ✅ FIX: Tambahkan is_generated dan sumber_perhitungan
                 $data = [
                     'nilai' => $nilaiNumeric,
-                    'catatan' => null, // ✅ NULL - catatan ada di catatan_mapel_siswa
+                    'catatan' => null, // ✅ NULL - catatan akan disimpan terpisah
                     'catatan_source' => 'excel',
+                    'is_generated' => false, // ✅ CRITICAL FIX
+                    'sumber_perhitungan' => null, // ✅ CRITICAL FIX
                     'input_by_guru_id' => $uploaderGuruId,
                     'updated_at' => now(),
                     'created_at' => now(),
@@ -237,27 +287,17 @@ class ImportNilaiController extends Controller
                     }
                 }
 
-                // ✅ SIMPAN CATATAN PER MAPEL (jika ada struktur nilai mapel)
-                // Cari struktur nilai mapel untuk mapel ini
-                $struktur = \App\Models\StrukturNilaiMapel::where('kelas_id', $kelas_id)
-                    ->where('mapel_id', $mapel_id)
-                    ->where('semester_id', $semester_id)
-                    ->where('tahun_ajaran_id', $activeTahunAjaran->id)
-                    ->first();
+                // ✅ ULTIMATE FIX: SIMPAN CATATAN (PRIORITAS: catatan_mapel_siswa → nilai table)
+                if ($catatan && !$dryRun) {
+                    // Cari struktur nilai mapel
+                    $struktur = \App\Models\StrukturNilaiMapel::where('kelas_id', $kelas_id)
+                        ->where('mapel_id', $mapel_id)
+                        ->where('semester_id', $semester_id)
+                        ->where('tahun_ajaran_id', $activeTahunAjaran->id)
+                        ->first();
 
-                if ($struktur) {
-                    // Cek apakah ada catatan untuk mapel ini
-                    $catatan = null;
-                    foreach ($catatanColToMapelId as $catatanCol => $catatanMapelId) {
-                        if ($catatanMapelId == $mapel_id) {
-                            $rawCatatan = trim((string)($row[$catatanCol] ?? ''));
-                            $catatan = $rawCatatan === '' ? null : $rawCatatan;
-                            break;
-                        }
-                    }
-
-                    // ✅ Simpan catatan jika ada (ini adalah catatan untuk NILAI AKHIR)
-                    if ($catatan && !$dryRun) {
+                    if ($struktur) {
+                        // ✅ Opsi 1: Ada struktur - simpan ke catatan_mapel_siswa
                         try {
                             CatatanMapelSiswa::updateOrCreate(
                                 [
@@ -269,9 +309,47 @@ class ImportNilaiController extends Controller
                                     'input_by_guru_id' => $uploaderGuruId,
                                 ]
                             );
+
+                            $catatanStats['saved_to_catatan_mapel_siswa']++;
+
+                            \Log::info("Import Excel: Catatan saved to catatan_mapel_siswa", [
+                                'siswa_id' => $siswa['id'],
+                                'struktur_id' => $struktur->id,
+                                'catatan' => $catatan
+                            ]);
                         } catch (Exception $e) {
-                            // Log error tapi jangan block proses
-                            \Log::warning("Failed to save catatan: " . $e->getMessage());
+                            $catatanStats['failed']++;
+                            \Log::error("Import Excel: Failed to save catatan to catatan_mapel_siswa", [
+                                'error' => $e->getMessage(),
+                                'siswa_id' => $siswa['id']
+                            ]);
+                        }
+                    } else {
+                        // ✅ Opsi 2: Tidak ada struktur - simpan langsung ke tabel nilai
+                        try {
+                            DB::table('nilai')
+                                ->where('siswa_id', $siswa['id'])
+                                ->where('mapel_id', $mapel_id)
+                                ->where('semester_id', $semester_id)
+                                ->where('tahun_ajaran_id', $activeTahunAjaran->id)
+                                ->update([
+                                    'catatan' => $catatan,
+                                    'updated_at' => now()
+                                ]);
+
+                            $catatanStats['saved_to_nilai_table']++;
+
+                            \Log::info("Import Excel: Catatan saved to nilai table (no struktur)", [
+                                'siswa_id' => $siswa['id'],
+                                'mapel_id' => $mapel_id,
+                                'catatan' => $catatan
+                            ]);
+                        } catch (Exception $e) {
+                            $catatanStats['failed']++;
+                            \Log::error("Import Excel: Failed to save catatan to nilai", [
+                                'error' => $e->getMessage(),
+                                'siswa_id' => $siswa['id']
+                            ]);
                         }
                     }
                 }
@@ -281,6 +359,7 @@ class ImportNilaiController extends Controller
                     'nama'=>$rawNama,
                     'mapel'=>$mapelHeader,
                     'nilai'=>$nilaiNumeric,
+                    'catatan'=>$catatan,
                     'siswa_id'=>$siswa['id'],
                 ];
             }
@@ -366,7 +445,8 @@ class ImportNilaiController extends Controller
             'tahun_ajaran' => [
                 'id' => $activeTahunAjaran->id,
                 'nama' => $activeTahunAjaran->nama
-            ]
+            ],
+            'catatan_stats' => $catatanStats,
         ];
 
         return response()->json([
@@ -376,7 +456,7 @@ class ImportNilaiController extends Controller
                 'success' => $success,
                 'failed' => $failed,
             ],
-            'note' => 'Nilai akhir tersimpan. Catatan akademik tersimpan di catatan_mapel_siswa. Gunakan endpoint generate nilai akhir jika menggunakan sistem nilai detail.'
+            'note' => 'Nilai tersimpan dengan is_generated=0, catatan_source=excel. Catatan tersimpan di catatan_mapel_siswa (jika ada struktur) atau langsung di tabel nilai (jika tidak ada struktur).'
         ]);
     }
 }

@@ -52,7 +52,7 @@ class NilaiController extends Controller
             ], 422);
         }
 
-        // ✅ OPSI C: Input manual langsung ke tabel nilai
+        // ✅ FIX: Input manual langsung ke tabel nilai dengan is_generated dan sumber_perhitungan
         DB::table('nilai')->updateOrInsert(
             [
                 'siswa_id' => $data['siswa_id'],
@@ -62,8 +62,10 @@ class NilaiController extends Controller
             ],
             [
                 'nilai' => $data['nilai'],
-                'catatan' => $data['catatan'] ?? null, // ✅ Langsung simpan catatan di tabel nilai
-                'catatan_source' => 'manual', // ✅ Tandai sebagai input manual
+                'catatan' => $data['catatan'] ?? null,
+                'catatan_source' => 'manual',
+                'is_generated' => false, // ✅ CRITICAL FIX: Input manual bukan generated
+                'sumber_perhitungan' => null, // ✅ CRITICAL FIX: Tidak ada perhitungan
                 'input_by_guru_id' => auth()->guard('api')->user()->guru->id ?? null,
                 'updated_at' => now(),
             ]
@@ -73,7 +75,7 @@ class NilaiController extends Controller
     }
 
     /**
-     * ✅ OPSI C: Update manual langsung di tabel nilai
+     * ✅ FIX: Update manual langsung di tabel nilai dengan is_generated dan sumber_perhitungan
      */
     public function update(Request $request, $kelas_id, $id)
     {
@@ -99,11 +101,13 @@ class NilaiController extends Controller
             return response()->json(['message' => 'Cannot update nilai from previous academic year'], 422);
         }
 
-        // ✅ OPSI C: Update langsung di tabel nilai
+        // ✅ FIX: Update langsung di tabel nilai dengan reset is_generated dan sumber_perhitungan
         DB::table('nilai')->where('id', $id)->update([
             'nilai' => $data['nilai'] ?? $record->nilai,
-            'catatan' => $data['catatan'] ?? $record->catatan, // ✅ Update catatan manual
-            'catatan_source' => 'manual', // ✅ Tetap manual (jangan overwrite jika generated)
+            'catatan' => $data['catatan'] ?? $record->catatan,
+            'catatan_source' => 'manual',
+            'is_generated' => false, // ✅ CRITICAL FIX: Update manual bukan generated
+            'sumber_perhitungan' => null, // ✅ CRITICAL FIX: Reset perhitungan jika manual
             'updated_at' => now(),
         ]);
 
@@ -138,7 +142,7 @@ class NilaiController extends Controller
         }
 
         $nilai = $query->select(
-            'nilai.*', // ✅ Sudah include catatan & catatan_source
+            'nilai.*',
             'siswa.nama as siswa_nama',
             'siswa.nisn as siswa_nisn',
             'mapel.nama as mapel_nama',
