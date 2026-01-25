@@ -29,22 +29,8 @@ use App\Http\Controllers\NilaiSikapController;
 use App\Http\Controllers\KetidakhadiranController;
 use App\Http\Controllers\NilaiMonitoringController;
 use App\Http\Controllers\TrashController;
+use App\Http\Controllers\CatatanAkademikController;
 
-/*
-|--------------------------------------------------------------------------
-| API Routes
-|--------------------------------------------------------------------------
-|
-| Semua route API untuk LMS: auth (guru/admin), siswa, nilai, jadwal, berita.
-|
-*/
-
-/**
- * -------------------------
- * Guru / Admin Authentication
- * (email + password)
- * -------------------------
- */
 Route::prefix('auth')->group(function () {
     Route::post('login', [AuthController::class, 'login']);
     Route::middleware('auth:api')->group(function () {
@@ -299,10 +285,9 @@ Route::middleware(['auth:siswa'])->group(function () {
     Route::get('/siswa/me/nilai', [SiswaNilaiController::class, 'index']);
     Route::get('/siswa/me/nilai/semester/{semester_id}', [SiswaNilaiController::class, 'bySemester']);
     Route::get('/siswa/me/nilai/{id}', [SiswaNilaiController::class, 'show']);
-    // Nilai sikap siswa
     Route::get('/siswa/me/nilai-sikap', [NilaiSikapController::class, 'siswaNilaiSikap']);
-    // Ketidakhadiran siswa
     Route::get('/siswa/me/ketidakhadiran', [KetidakhadiranController::class, 'siswaKetidakhadiran']);
+    Route::get('/siswa/me/catatan-akademik', [CatatanAkademikController::class, 'siswaCatatanAkademik']);
 });
 
 /**
@@ -423,6 +408,37 @@ Route::prefix('admin/trash')->middleware(['auth:api', 'is_admin'])->group(functi
 });
 
 Route::middleware(['auth:api', 'is_admin_or_guru'])->group(function () {
+
+     // Get existing catatan untuk satu struktur
+    Route::get(
+        '/kelas/{kelas_id}/struktur-nilai/{struktur_id}/catatan',
+        [CatatanAkademikController::class, 'index']
+    );
+
+    // Bulk save catatan
+    Route::post(
+        '/kelas/{kelas_id}/struktur-nilai/{struktur_id}/catatan/bulk',
+        [CatatanAkademikController::class, 'bulkStore']
+    );
+
+    // Save single catatan
+    Route::post(
+        '/kelas/{kelas_id}/struktur-nilai/{struktur_id}/catatan/single',
+        [CatatanAkademikController::class, 'storeSingle']
+    );
+
+    // Delete catatan
+    Route::delete(
+        '/kelas/{kelas_id}/struktur-nilai/{struktur_id}/catatan/{siswa_id}',
+        [CatatanAkademikController::class, 'destroy']
+    );
+
+    // Get catatan siswa untuk rapor (admin/guru)
+    Route::get(
+        '/siswa/{siswa_id}/catatan-akademik',
+        [CatatanAkademikController::class, 'getBySiswa']
+    );
+
     Route::post('/beritas', [BeritaController::class, 'store']);
     Route::post('/beritas/{id}', [BeritaController::class, 'update']);
     Route::put('/beritas/{id}', [BeritaController::class, 'update']);
