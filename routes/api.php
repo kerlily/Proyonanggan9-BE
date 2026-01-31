@@ -409,11 +409,17 @@ Route::prefix('admin/trash')->middleware(['auth:api', 'is_admin'])->group(functi
 
 Route::middleware(['auth:api', 'is_admin_or_guru'])->group(function () {
 
+
+    Route::get(
+        '/kelas/{kelas_id}/struktur-nilai/available-for-catatan',
+        [CatatanAkademikController::class, 'getAvailableStruktur']
+    );
      // Get existing catatan untuk satu struktur
     Route::get(
         '/kelas/{kelas_id}/struktur-nilai/{struktur_id}/catatan',
         [CatatanAkademikController::class, 'index']
     );
+
 
     // Bulk save catatan
     Route::post(

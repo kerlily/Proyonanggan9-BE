@@ -12,6 +12,11 @@ use App\Models\Siswa;
 
 class CatatanAkademikController extends Controller
 {
+
+    /**
+     * Get existing catatan untuk satu struktur
+     * GET /kelas/{kelas_id}/struktur-nilai/{struktur_id}/catatan
+     */
     public function index($kelas_id, $struktur_id)
     {
         $struktur = StrukturNilaiMapel::where('kelas_id', $kelas_id)
@@ -49,6 +54,49 @@ class CatatanAkademikController extends Controller
                     'nama' => $struktur->semester?->nama,
                 ],
             ],
+        ]);
+    }
+
+    /**
+     * Get list struktur nilai yang bisa diinput catatan (semua struktur di kelas & semester)
+     * GET /kelas/{kelas_id}/struktur-nilai/available-for-catatan
+     *
+     * Params: ?semester_id=X
+     */
+    public function getAvailableStruktur(Request $request, $kelas_id)
+    {
+        $query = StrukturNilaiMapel::with(['mapel:id,nama,kode', 'semester:id,nama'])
+            ->where('kelas_id', $kelas_id);
+
+        // Filter by semester if provided
+        if ($request->has('semester_id')) {
+            $query->where('semester_id', $request->semester_id);
+        }
+
+        $strukturList = $query->orderBy('mapel_id')->get();
+
+        // Count catatan for each struktur
+        $result = $strukturList->map(function($struktur) {
+            $catatanCount = CatatanMapelSiswa::where('struktur_nilai_mapel_id', $struktur->id)->count();
+
+            return [
+                'id' => $struktur->id,
+                'mapel' => [
+                    'id' => $struktur->mapel?->id,
+                    'nama' => $struktur->mapel?->nama,
+                    'kode' => $struktur->mapel?->kode,
+                ],
+                'semester' => [
+                    'id' => $struktur->semester?->id,
+                    'nama' => $struktur->semester?->nama,
+                ],
+                'catatan_count' => $catatanCount,
+            ];
+        });
+
+        return response()->json([
+            'success' => true,
+            'data' => $result,
         ]);
     }
 
@@ -285,4 +333,90 @@ class CatatanAkademikController extends Controller
             'data' => $grouped,
         ]);
     }
-}
+
+    /**
+     * Endpoint untuk siswa melihat catatan akademik mereka sendiri
+     * GET /siswa/me/catatan-akademik
+     * Auth: auth:siswa
+     */
+    public function siswaCatatanAkademik(Request $request)
+    {
+        $siswa = Auth::guard('siswa')->user();
+
+        if (!$siswa) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Unauthorized'
+            ], 401);
+        }
+
+        $query = CatatanMapelSiswa::with([
+            'strukturNilaiMapel.mapel:id,nama,kode',
+            'strukturNilaiMapel.semester:id,nama',
+            'strukturNilaiMapel.tahunAjaran:id,nama',
+            'inputByGuru:id,nama'
+        ])->where('siswa_id', $siswa->id);
+
+        // Filter by semester if provided
+        if ($request->has('semester_id')) {
+            $query->whereHas('strukturNilaiMapel', function($q) use ($request) {
+                $q->where('semester_id', $request->semester_id);
+            });
+        }
+
+        // Filter by tahun ajaran if provided
+        if ($request->has('tahun_ajaran_id')) {
+            $query->whereHas('strukturNilaiMapel', function($q) use ($request) {
+                $q->where('tahun_ajaran_id', $request->tahun_ajaran_id);
+            });
+        }
+
+        $catatan = $query->get();
+
+        // Group by tahun ajaran & semester
+        $grouped = $catatan->groupBy(function($item) {
+            $struktur = $item->strukturNilaiMapel;
+            return $struktur->tahun_ajaran_id . '_' . $struktur->semester_id;
+        })->map(function($items) {
+            $first = $items->first()->strukturNilaiMapel;
+
+            return [
+                'tahun_ajaran' => [
+                    'id' => $first->tahunAjaran?->id,
+                    'nama' => $first->tahunAjaran?->nama,
+                ],
+                'semester' => [
+                    'id' => $first->semester?->id,
+                    'nama' => $first->semester?->nama,
+                ],
+                'catatan_per_mapel' => $items->map(function($item) {
+                    return [
+                        'mapel' => [
+                            'id' => $item->strukturNilaiMapel->mapel?->id,
+                            'nama' => $item->strukturNilaiMapel->mapel?->nama,
+                            'kode' => $item->strukturNilaiMapel->mapel?->kode,
+                        ],
+                        'catatan' => $item->catatan,
+                        'input_by_guru' => [
+                            'id' => $item->inputByGuru?->id,
+                            'nama' => $item->inputByGuru?->nama,
+                        ],
+                        'updated_at' => $item->updated_at,
+                    ];
+                })->values(),
+            ];
+        })->values();
+
+        return response()->json([
+            'success' => true,
+            'siswa' => [
+                'id' => $siswa->id,
+                'nama' => $siswa->nama,
+                'nisn' => $siswa->nisn,
+                'kelas' => $siswa->kelas?->nama,
+            ],
+            'data' => $grouped,
+        ]);
+    }
+
+   }
