@@ -582,6 +582,19 @@ public function resetGuruPassword(Request $request, $id)
             'is_alumni' => $data['is_alumni'] ?? false,
         ]);
 
+        $activeTahunAjaran = \App\Models\TahunAjaran::where('is_active', true)->first();
+        if ($activeTahunAjaran && $data['kelas_id']) {
+            \App\Models\RiwayatKelas::updateOrCreate(
+                [
+                    'siswa_id' => $siswa->id,
+                    'tahun_ajaran_id' => $activeTahunAjaran->id,
+                ],
+                [
+                    'kelas_id' => $data['kelas_id'],
+                ]
+            );
+        }
+
         DB::commit();
 
         return response()->json([
@@ -605,7 +618,6 @@ public function updateSiswa(Request $request, $id)
         return response()->json(['message' => 'Siswa not found'], 404);
     }
 
-    // Validasi - HANYA field yang ada di table siswa
     $validated = $request->validate([
         'nama' => 'sometimes|string|max:255',
         'nisn' => 'sometimes|nullable|string|max:20|unique:siswa,nisn,' . $id,
@@ -616,11 +628,26 @@ public function updateSiswa(Request $request, $id)
 
     DB::beginTransaction();
     try {
+        $oldKelasId = $siswa->kelas_id;
         $siswa->update($validated);
+
+        if (isset($validated['kelas_id']) && $validated['kelas_id'] != $oldKelasId) {
+            $activeTahunAjaran = \App\Models\TahunAjaran::where('is_active', true)->first();
+            if ($activeTahunAjaran) {
+                \App\Models\RiwayatKelas::updateOrCreate(
+                    [
+                        'siswa_id' => $siswa->id,
+                        'tahun_ajaran_id' => $activeTahunAjaran->id,
+                    ],
+                    [
+                        'kelas_id' => $validated['kelas_id'],
+                    ]
+                );
+            }
+        }
 
         DB::commit();
 
-        // Load kelas untuk response
         $siswa->load('kelas');
 
         return response()->json([
@@ -634,7 +661,6 @@ public function updateSiswa(Request $request, $id)
         ], 500);
     }
 }
-
 /**
  * Delete siswa (SOFT DELETE)
  * DELETE /api/admin/siswa/{id}
@@ -701,9 +727,28 @@ public function indexSiswa(Request $request)
 
     $includeTrashed = $request->query('include_trashed', false);
 
+    // ✅ FIX: Load riwayatKelas dengan tahunAjaran yang aktif
     $query = $includeTrashed
-        ? Siswa::withTrashed()->with(['kelas'])
-        : Siswa::query()->with(['kelas']); // Otomatis exclude yang deleted
+        ? Siswa::withTrashed()->with([
+            'kelas',
+            'riwayatKelas' => function($q) {
+                $q->with(['kelas', 'tahunAjaran'])
+                  ->whereHas('tahunAjaran', function($ta) {
+                      $ta->where('is_active', true);
+                  })
+                  ->orderByDesc('tahun_ajaran_id');
+            }
+        ])
+        : Siswa::query()->with([
+            'kelas',
+            'riwayatKelas' => function($q) {
+                $q->with(['kelas', 'tahunAjaran'])
+                  ->whereHas('tahunAjaran', function($ta) {
+                      $ta->where('is_active', true);
+                  })
+                  ->orderByDesc('tahun_ajaran_id');
+            }
+        ]);
 
     if ($search) {
         $query->where(function($q) use ($search) {

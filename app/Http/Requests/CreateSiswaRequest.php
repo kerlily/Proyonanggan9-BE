@@ -35,7 +35,7 @@ class CreateSiswaRequest extends FormRequest
             'nama' => ['required','string','max:255'],
             'nisn' => ['nullable','string','max:20', 'unique:siswa,nisn'],
             'tahun_lahir' => ['required','integer','digits:4','min:1900','max:'.$currentYear],
-            'kelas_id' => ['required','integer','exists:kelas,id'],
+            'kelas_id' => ['nullable','integer','exists:kelas,id'],
             'is_alumni' => ['nullable','boolean'],
         ];
     }

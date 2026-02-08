@@ -13,6 +13,7 @@ class Berita extends Model
     protected $table = 'beritas';
 
     protected $fillable = [
+        'type',
         'title',
         'description',
         'image',
@@ -34,6 +35,16 @@ class Berita extends Model
         'image',
         'created_by',
     ];
+
+    public function scopePengumuman($query)
+    {
+        return $query->where('type', 'pengumuman');
+    }
+
+    public function scopeBerita($query)
+    {
+        return $query->where('type', 'berita');
+    }
 
     public function author()
     {

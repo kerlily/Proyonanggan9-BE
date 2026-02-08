@@ -20,6 +20,7 @@ class BeritaController extends Controller
                     'id' => $b->id,
                     'title' => $b->title,
                     'description' => $b->description,
+                    'type' => $b->type,
                     'is_published' => (bool)$b->is_published,
                     'published_at' => $b->published_at,
                     'created_by' => $b->created_by,
@@ -29,6 +30,28 @@ class BeritaController extends Controller
 
         return response()->json(['beritas' => $beritas]);
     }
+
+    public function indexPengumuman()
+{
+    $pengumuman = Berita::where('is_published', true)
+        ->where('type', 'pengumuman')
+        ->orderByDesc('published_at')
+        ->get()
+        ->map(function($b) {
+            return [
+                'id' => $b->id,
+                'title' => $b->title,
+                'description' => $b->description,
+                'type' => $b->type, // ← penting!
+                'is_published' => (bool)$b->is_published,
+                'published_at' => $b->published_at,
+                'created_by' => $b->created_by,
+                'image_url' => $b->image_url,
+            ];
+        });
+
+    return response()->json(['pengumuman' => $pengumuman]);
+}
 
     // show single berita -> mengembalikan { berita: {...} }
     public function show($id)
@@ -81,6 +104,7 @@ class BeritaController extends Controller
                     'id' => $b->id,
                     'title' => $b->title,
                     'description' => $b->description,
+                    'type' => $b->type,
                     'is_published' => (bool)$b->is_published,
                     'published_at' => $b->published_at,
                     'created_by' => $b->created_by,
@@ -106,6 +130,7 @@ class BeritaController extends Controller
             'title' => 'required|string|max:255',
             'description' => 'nullable|string',
             'image' => 'nullable|image|max:5120',
+            'type' => 'nullable|in:berita,pengumuman',
             'is_published' => 'nullable|boolean',
             'published_at' => 'nullable|date',
         ]);
@@ -118,6 +143,7 @@ class BeritaController extends Controller
         $berita = Berita::create([
             'title' => $request->title,
             'description' => $request->description,
+            'type' => $request->input('type', 'berita'),
             'image' => $path,
             'created_by' => $user->id,
             'is_published' => $request->input('is_published', true),
@@ -130,6 +156,7 @@ class BeritaController extends Controller
                 'id' => $berita->id,
                 'title' => $berita->title,
                 'description' => $berita->description,
+                'type' => $berita->type,
                 'is_published' => (bool)$berita->is_published,
                 'published_at' => $berita->published_at,
                 'created_by' => $berita->created_by,
@@ -137,6 +164,8 @@ class BeritaController extends Controller
             ]
         ], 201);
     }
+
+
 
     // update berita (only author or admin)
     public function update(Request $request, $id)
@@ -167,6 +196,7 @@ class BeritaController extends Controller
             'title' => 'nullable|string|max:255',
             'description' => 'nullable|string',
             'image' => 'nullable|image|max:5120',
+            'type' => 'nullable|in:berita,pengumuman',
             'is_published' => 'nullable',
             'published_at' => 'nullable|date',
         ]);
@@ -184,6 +214,10 @@ class BeritaController extends Controller
 
         if ($request->has('description')) {
             $berita->description = $request->input('description');
+        }
+
+        if ($request->has('type')) {
+            $berita->type = $request->input('type');
         }
 
         if ($request->has('is_published')) {
@@ -212,6 +246,7 @@ class BeritaController extends Controller
                 'id' => $berita->id,
                 'title' => $berita->title,
                 'description' => $berita->description,
+                'type' => $berita->type,
                 'is_published' => (bool)$berita->is_published,
                 'published_at' => $berita->published_at,
                 'created_by' => $berita->created_by,
