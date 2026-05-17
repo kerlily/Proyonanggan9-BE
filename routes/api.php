@@ -259,6 +259,7 @@ Route::middleware(['auth:api', 'wali.kelas'])->group(function () {
      */
     Route::get('/beritas', [BeritaController::class, 'index']);
     Route::get('/beritas/{id}', [BeritaController::class, 'show']);
+    Route::get('/beritas/{id}/download', [BeritaController::class, 'downloadAttachment'])->name('beritas.download');
     Route::get('/pengumuman', [BeritaController::class, 'indexPengumuman']);
     Route::get('/public/guru', [PublicGuruController::class, 'index']);
     Route::get('/public/guru/{id}', [PublicGuruController::class, 'show']);
